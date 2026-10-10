@@ -24,3 +24,8 @@ var world = new WorldGenerator(42, new WorldSettings { Size = 129 }).Generate();
 Console.WriteLine(world.Fingerprint().ToString("X16"));
 ```
 
+
+## API integrada
+
+Use `UniversalWorldGenerator` para receber terreno, geologia, rios, cavernas e labirinto em um pacote. `IWorldAdapter` e os planos de streaming conectam os dados a Godot, Unity, Unreal ou engine propria. Veja `MIGRATION.md` para a origem de cada sistema.
+

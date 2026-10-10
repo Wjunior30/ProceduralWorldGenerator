@@ -4,6 +4,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
+    <PackageId>Wjunior30.ProceduralWorld.Core</PackageId>
+    <Version>0.2.0</Version>
+    <Description>Deterministic, engine-neutral terrain, caves, rivers, labyrinths and voxel worlds.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 </Project>
-
