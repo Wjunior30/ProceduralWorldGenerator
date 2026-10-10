@@ -35,7 +35,7 @@ public sealed class TerrainGenerator
                 map.Height[map.Index(x, z)] = (float)Math.Max(3, h);
             }
         });
-        CalculateSlopes(map); Hydrology.Apply(map, _settings); ClassifyClimate(map); return map;
+        Erosion.Apply(map); CalculateSlopes(map); Hydrology.Apply(map, _settings); ClassifyClimate(map); return map;
     }
 
     private void CalculateSlopes(SurfaceMap map)
