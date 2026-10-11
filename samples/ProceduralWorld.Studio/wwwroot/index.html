@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Procedural World Studio</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="integration.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark">PW</div>
+    <div>
+      <h1>PROCEDURAL WORLD STUDIO</h1>
+      <p>GERADOR DE MUNDOS INDEPENDENTE DE ENGINE</p>
+    </div>
+    <div class="top-actions">
+      <button id="randomize" class="quiet">NOVA SEED</button>
+      <button id="export" class="quiet">EXPORTAR CONFIGURAÇÃO</button>
+      <button id="integrate" class="quiet">CRIAR NA ENGINE</button>
+      <button id="generate" class="primary">GERAR MUNDO</button>
+    </div>
+  </header>
+
+  <main>
+    <aside class="left-panel panel">
+      <section>
+        <div class="section-title"><span>01</span> PERFIL GEOLÓGICO</div>
+        <div id="presets" class="preset-list"></div>
+      </section>
+
+      <section>
+        <div class="section-title"><span>02</span> ESTRUTURA DO MUNDO</div>
+        <label class="field-label" for="seed">SEED</label>
+        <input id="seed" type="number" value="2026">
+        <label class="field-label" for="size">RESOLUÇÃO</label>
+        <select id="size">
+          <option value="65">65 × 65 — rascunho</option>
+          <option value="129" selected>129 × 129 — padrão</option>
+          <option value="257">257 × 257 — detalhado</option>
+        </select>
+        <label class="field-label" for="waterMode">HIDROLOGIA</label>
+        <select id="waterMode">
+          <option value="RiversOnly">Somente rios</option>
+          <option value="RiversAndLakes">Rios e lagos</option>
+          <option value="None">Sem água</option>
+        </select>
+      </section>
+    </aside>
+
+    <section class="viewport-panel panel">
+      <div class="viewport-toolbar">
+        <div>
+          <strong id="world-name">MUNDO NATURAL</strong>
+          <span id="fingerprint">AGUARDANDO GERAÇÃO</span>
+        </div>
+        <div class="view-modes" role="group" aria-label="Visualização">
+          <button data-view="terrain" class="active">RELEVO</button>
+          <button data-view="biomes">BIOMAS</button>
+          <button data-view="water">ÁGUA</button>
+          <button data-view="slope">DECLIVE</button>
+        </div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="map" width="820" height="820"></canvas>
+        <div id="loading" class="loading hidden"><span></span><b>GERANDO GEOLOGIA</b></div>
+        <div class="map-scale">N<br><span></span><small>VISÃO ORTOGRÁFICA</small></div>
+        <div id="probe" class="probe">Mova o cursor sobre o mapa</div>
+      </div>
+    </section>
+
+    <aside class="right-panel panel">
+      <section>
+        <div class="section-title"><span>03</span> PARÂMETROS</div>
+        <div class="slider-field"><label>ALTURA DAS MONTANHAS <output id="mountainOut">720 m</output></label><input id="mountain" type="range" min="120" max="1400" value="720" step="20"></div>
+        <div class="slider-field"><label>FORÇA DO RELEVO <output id="reliefOut">1.00</output></label><input id="relief" type="range" min="20" max="200" value="100"></div>
+        <div class="slider-field"><label>EROSÃO <output id="erosionOut">24 ciclos</output></label><input id="erosion" type="range" min="0" max="100" value="24"></div>
+        <div class="slider-field"><label>LARGURA DOS RIOS <output id="riverOut">1.00×</output></label><input id="river" type="range" min="25" max="300" value="100"></div>
+        <div class="slider-field"><label>DENSIDADE DE CAVERNAS <output id="caveOut">1.00×</output></label><input id="cave" type="range" min="25" max="300" value="100"></div>
+        <div class="slider-field"><label>ESCALA DOS BIOMAS <output id="biomeOut">1.00×</output></label><input id="biome" type="range" min="40" max="250" value="100"></div>
+      </section>
+
+      <section class="diagnostics">
+        <div class="section-title"><span>04</span> DIAGNÓSTICO</div>
+        <div class="stats">
+          <div><small>ALTITUDE</small><strong id="heightStat">—</strong></div>
+          <div><small>RIOS</small><strong id="riverStat">—</strong></div>
+          <div><small>CAVERNAS</small><strong id="caveStat">—</strong></div>
+          <div><small>BIOMAS</small><strong id="biomeStat">—</strong></div>
+        </div>
+        <div id="health" class="health waiting"><i></i><span>Execute uma geração para analisar o mundo.</span></div>
+      </section>
+
+      <section class="engine-summary">
+        <div class="section-title"><span>05</span> ENGINES</div>
+        <div id="engine-status" class="engine-status">Procurando engines instaladas...</div>
+      </section>
+    </aside>
+  </main>
+
+  <div id="integration-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="integration-title">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div><small>ASSISTENTE DE INTEGRAÇÃO</small><h2 id="integration-title">Criar projeto na engine</h2></div>
+        <button id="close-integration" class="icon-button" aria-label="Fechar">×</button>
+      </div>
+      <div class="integration-grid">
+        <div>
+          <label class="field-label">ENGINE DE DESTINO</label>
+          <div id="engine-list" class="engine-list"></div>
+        </div>
+        <div class="integration-form">
+          <label class="field-label" for="project-name">NOME DO PROJETO</label>
+          <input id="project-name" type="text" value="MeuMundoProcedural">
+          <label class="field-label" for="destination">PASTA COMPLETA DO PROJETO</label>
+          <input id="destination" type="text" value="V:\Repositories\Wjunior30\GeneratedWorlds\MeuMundoProcedural">
+          <label class="check"><input id="open-after" type="checkbox" checked><span>Abrir a engine depois da criação</span></label>
+          <label class="check"><input id="overwrite" type="checkbox"><span>Autorizar substituição de arquivos gerados existentes</span></label>
+        </div>
+      </div>
+      <div id="project-preview" class="project-preview"><p>Escolha a engine e clique em visualizar para conferir todos os arquivos.</p></div>
+      <label id="consent-row" class="consent hidden"><input id="consent" type="checkbox"><span>Eu revisei a pasta e autorizo o Studio a criar os arquivos listados e executar a engine selecionada.</span></label>
+      <div id="integration-result" class="integration-result hidden"></div>
+      <div class="modal-actions">
+        <button id="preview-project" class="quiet">VISUALIZAR ARQUIVOS</button>
+        <button id="create-project" class="primary" disabled>CRIAR E ABRIR NA ENGINE</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>NÚCLEO PROCEDURALWORLD.CORE · GERAÇÃO DETERMINÍSTICA</span>
+    <span id="status">PRONTO</span>
+  </footer>
+  <script src="app.js"></script>
+  <script src="integration.js"></script>
+</body>
+</html>

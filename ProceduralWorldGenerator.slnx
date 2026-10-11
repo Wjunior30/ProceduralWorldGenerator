@@ -1,6 +1,8 @@
 <Solution>
   <Folder Name="/samples/">
+    <Project Path="samples/ProceduralWorld.Backtest/ProceduralWorld.Backtest.csproj" />
     <Project Path="samples/ProceduralWorld.Demo/ProceduralWorld.Demo.csproj" />
+    <Project Path="samples/ProceduralWorld.Studio/ProceduralWorld.Studio.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/ProceduralWorld.Core/ProceduralWorld.Core.csproj" />
