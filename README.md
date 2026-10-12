@@ -74,19 +74,21 @@ Também fazem parte de P1:
 - validar distribuição de áreas planas e íngremes por perfil, em vez de usar um único limite para todos;
 - executar backtests em várias resoluções e rejeitar seeds com rios ascendentes, geologia incoerente ou cavernas isoladas.
 
-## Problemas conhecidos medidos
+## Resultado do backtest e limitações conhecidas
 
-A análise de 70 mundos em 129 × 129 e sete mundos em 257 × 257 encontrou:
+O backtest ampliado de outubro de 2026 gerou **700 mundos** (sete perfis, 50 seeds e resoluções 65 × 65 e 129 × 129). Todos concluíram a geração; rios ficaram hidraulicamente válidos e as cavernas alcançáveis pelas entradas nos agregados. A comparação geomorfológica obteve 100/100 em todos os casos de `Karst` e `Volcanic`, além de todos os casos de `Alpine` em 65 × 65.
 
-- 16% a 34% das arestas presas exatamente ao limitador de inclinação;
-- 83% a 95% de células íngremes em vários perfis montanhosos;
-- somente 0,13% a 2,82% de terreno realmente plano, inclusive em `RollingPlains`;
-- 25% a 34% dos trechos de rio com superfície localmente ascendente depois da etapa final do relevo;
-- somente 3% a 58% do volume de cavernas alcançável pelas entradas, dependendo do perfil;
-- 35 de 70 mundos com domínio excessivo de um único bioma;
-- diferenças de até 40,81 metros de RMSE ao regenerar a mesma extensão física em outra resolução.
+Ainda há seeds extremas que devem ser rejeitadas pelos diagnósticos ou refinadas futuramente:
 
-O backtest atual considera penhasco somente acima de uma inclinação que o próprio gerador já impede. Essa métrica deve ser substituída por distribuição de inclinações, saturação no limite, curvatura e continuidade de formas.
+- o pior caso estrutural foi `Glacial`, seed `7924047624999685062`, com nota 79,6, domínio de bioma e dois componentes subterrâneos desconectados;
+- 28 de 100 mapas `Natural` não equilibraram áreas planas e encostas, e dez apresentaram baixa diversidade de formas;
+- 12 de 100 mapas `Glacial` ficaram fora do arquétipo, principalmente por relevo insuficiente ou falta de fundos largos de vale;
+- um caso `Alpine` em 129 × 129 teve relevo relativo insuficiente;
+- dois casos `RollingPlains` em 65 × 65 tiveram relevo excessivo ou área plana insuficiente;
+- dois casos `Canyonlands` em 65 × 65 produziram cânions pouco encaixados;
+- casos estruturais raros ainda apresentam domínio excessivo de um bioma, ápices isolados, degraus altos ou componentes subterrâneos desconectados.
+
+Os relatórios completos ficam em `artifacts/backtest/summary.md` e `artifacts/backtest/real-geology-summary.md`. A comparação é qualitativa, baseada em formas e distribuições; a próxima etapa científica é confrontar alturas e drenagem com DEMs reais reamostrados na mesma escala.
 
 ## Perfis de terreno
 
@@ -115,6 +117,14 @@ dotnet run --project tests/ProceduralWorld.Tests
 Abra `http://127.0.0.1:5179` para usar o **Procedural World Studio**. A ferramenta permite escolher o perfil geológico, a seed, a resolução, a hidrologia, a altura das montanhas, a força do relevo, a erosão, a largura dos rios, a densidade das cavernas e a escala dos biomas. A pré-visualização mantém os modos 2D ortográfico e 3D em miniatura, com rotação e zoom, além das camadas de relevo, biomas, água e declividade, diagnóstico automático e exportação da configuração em JSON.
 
 O backtest grava JSON, CSV, resumo Markdown e renderizações PPM de regressão para a seed de referência de cada perfil. Sem argumento de resolução, ele valida 65 × 65 e 129 × 129.
+
+Para ampliar a amostra e executar também a comparação com arquétipos geológicos reais:
+
+```text
+dotnet run --project samples/ProceduralWorld.Backtest -- 65,129 artifacts/backtest 50
+```
+
+O terceiro argumento define a quantidade de seeds. `real-geology-summary.md` compara relevo relativo, distribuição de declives, drenagem e formas diagnósticas com arquétipos documentados pelo USGS. Essa análise é geomorfológica e não substitui uma comparação célula a célula com um modelo digital de elevação real.
 
 O Studio é uma ferramenta de autoria separada dos jogos. Ele consome `ProceduralWorld.Core`, mas nenhuma interface do Studio precisa ser incorporada ao HUD do jogo final.
 

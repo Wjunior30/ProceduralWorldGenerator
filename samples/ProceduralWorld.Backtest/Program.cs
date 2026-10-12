@@ -9,7 +9,10 @@ int[] sizes = args.Length > 0
     ? args[0].Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).Distinct().OrderBy(x => x).ToArray()
     : new[] { 65, 129 };
 string outputRoot = args.Length > 1 ? Path.GetFullPath(args[1]) : Path.GetFullPath(Path.Combine("artifacts", "backtest"));
-long[] seeds = { 1, 7, 42, 1337, 2026, 4096, 9876, 65537, 99991, 173133397 };
+long[] referenceSeeds = { 1, 7, 42, 1337, 2026, 4096, 9876, 65537, 99991, 173133397 };
+int requestedSeedCount = args.Length > 2 && int.TryParse(args[2], out int parsedSeedCount) ? Math.Clamp(parsedSeedCount, 10, 1000) : referenceSeeds.Length;
+long[] seeds = referenceSeeds.Concat(Enumerable.Range(0, Math.Max(0, requestedSeedCount - referenceSeeds.Length))
+    .Select(i => unchecked((long)(0x9E3779B97F4A7C15UL * (ulong)(i + 11))))).Take(requestedSeedCount).ToArray();
 TerrainStyle[] styles = Enum.GetValues<TerrainStyle>();
 var cases = sizes.SelectMany(size => styles.SelectMany(style => seeds.Select(seed => (style, seed, size)))).ToArray();
 var results = new ConcurrentBag<BacktestResult>();
@@ -36,6 +39,7 @@ var options = new JsonSerializerOptions { WriteIndented = true, Converters = { n
 File.WriteAllText(Path.Combine(outputRoot, "backtest.json"), JsonSerializer.Serialize(new BacktestSuite(started, DateTimeOffset.UtcNow, sizes, seeds, ordered, best, worst, render), options), new UTF8Encoding(false));
 WriteCsv(Path.Combine(outputRoot, "backtest.csv"), ordered);
 WriteSummary(Path.Combine(outputRoot, "summary.md"), ordered, best, worst, render, started);
+WriteRealGeologySummary(Path.Combine(outputRoot, "real-geology-summary.md"), ordered);
 WriteRegressionImages(outputRoot, styles, sizes.Max());
 Console.WriteLine();
 Console.WriteLine($"Best: {best.Style} / {best.Seed} ({best.Score:F1})");
@@ -47,6 +51,7 @@ static BacktestResult Analyze(TerrainStyle style, long seed, WorldSettings setti
 {
     SurfaceMap map = world.Surface;
     TerrainReport report = TerrainDiagnostics.Analyze(world);
+    RealGeologyAssessment realGeology = RealGeologyBenchmarks.Assess(style, map, report);
     double mean = map.Height.Average(x => (double)x);
     double stdDev = Math.Sqrt(map.Height.Average(x => (x - mean) * (x - mean)));
     double riverCoverage = map.RiverChannel.Count(x => x) / (double)map.Height.Length;
@@ -86,12 +91,12 @@ static BacktestResult Analyze(TerrainStyle style, long seed, WorldSettings setti
     Penalize(report.BasinCount != report.DrainageOutlets, 10, $"{report.BasinCount} bacias para {report.DrainageOutlets} saídas");
     Penalize(report.CaveComponents != 1, 20, $"{report.CaveComponents} componentes subterrâneos desconectados");
 
-    return new BacktestResult(style, seed, settings.Size, world.Fingerprint().ToString("X16"), Math.Max(0, score),
+    return new BacktestResult(style, seed, settings.Size, world.Fingerprint().ToString("X16"), Math.Max(0, score), realGeology.Score,
         map.Height.Min(), map.Height.Max(), map.Height.Max() - map.Height.Min(), stdDev,
         report.MaximumNeighbourRise, report.MaximumLocalApex, report.FlatAreaRatio, report.SteepAreaRatio, report.RepeatedSteepGradeRatio,
         report.BiomeCount, report.DominantBiomeRatio, report.DominantGeologyRatio, report.BiomeComponents,
         riverCoverage, waterCoverage, report.RiverCells, report.BrokenRiverCells, report.UphillDrainageCells, report.UphillRiverCells, report.DrainageOutlets,
-        report.CaveEntrances, report.InaccessibleEntrances, report.ReachableCaveRatio, world.Caves.AirCellCount, world.Labyrinth.WalkableCount, issues);
+        report.CaveEntrances, report.InaccessibleEntrances, report.ReachableCaveRatio, world.Caves.AirCellCount, world.Labyrinth.WalkableCount, issues, realGeology.Findings);
 
     void Penalize(bool condition, double penalty, string issue) { if (!condition) return; score -= penalty; issues.Add(issue); }
 }
@@ -128,6 +133,26 @@ static void WriteSummary(string path, IReadOnlyList<BacktestResult> results, Bac
     File.WriteAllText(path, md.ToString(), new UTF8Encoding(false));
 }
 
+static void WriteRealGeologySummary(string path, IReadOnlyList<BacktestResult> results)
+{
+    var md = new StringBuilder("# Comparação com arquétipos geológicos reais\n\n");
+    md.AppendLine("Comparação geomorfológica por métricas e formas diagnósticas; não substitui validação contra um DEM real.\n");
+    md.AppendLine("| Perfil | Resolução | Nota média | Pior | Casos com achados |");
+    md.AppendLine("|---|---:|---:|---:|---:|");
+    foreach (var group in results.GroupBy(x => (x.Style, x.Resolution)).OrderBy(x => x.Key.Resolution).ThenBy(x => x.Key.Style))
+        md.AppendLine($"| {group.Key.Style} | {group.Key.Resolution} | {group.Average(x => x.RealGeologyScore):F1} | {group.Min(x => x.RealGeologyScore):F1} | {group.Count(x => x.RealGeologyFindings.Count > 0)} / {group.Count()} |");
+    md.AppendLine("\n## Achados mais frequentes\n");
+    var findings = results.SelectMany(x => x.RealGeologyFindings).GroupBy(x => x).OrderByDescending(x => x.Count()).Take(30).ToArray();
+    if (findings.Length == 0) md.AppendLine("- Nenhuma incompatibilidade nas faixas adotadas.");
+    foreach (var finding in findings) md.AppendLine($"- {finding.Key}: {finding.Count()} casos");
+    md.AppendLine("\n## Referências conceituais\n");
+    md.AppendLine("- USGS, Geology of Canyonlands National Park: mesas, estratos resistentes e cânions fluviais encaixados.");
+    md.AppendLine("- USGS, Geology of Mammoth Cave: calcário, dolinas, rios sumidouros e drenagem subterrânea.");
+    md.AppendLine("- USGS, Geology of Glacier National Park: vales em U, circos, arestas, lagos e morainas.");
+    md.AppendLine("- USGS, Principal Types of Volcanoes: cones, escudos, calderas e derrames de lava.");
+    File.WriteAllText(path, md.ToString(), new UTF8Encoding(false));
+}
+
 static void WriteRegressionImages(string outputRoot, IReadOnlyList<TerrainStyle> styles, int size)
 {
     string directory = Path.Combine(outputRoot, "regression");
@@ -155,10 +180,10 @@ static void WriteRegressionImages(string outputRoot, IReadOnlyList<TerrainStyle>
 }
 
 sealed record BacktestSuite(DateTimeOffset StartedAt, DateTimeOffset CompletedAt, int[] Resolutions, long[] Seeds, IReadOnlyList<BacktestResult> Results, BacktestResult Best, BacktestResult Worst, BacktestResult RenderCandidate);
-sealed record BacktestResult(TerrainStyle Style, long Seed, int Resolution, string Fingerprint, double Score,
+sealed record BacktestResult(TerrainStyle Style, long Seed, int Resolution, string Fingerprint, double Score, double RealGeologyScore,
     double MinimumHeight, double MaximumHeight, double HeightRange, double HeightStdDev,
     double MaximumNeighbourRise, double MaximumLocalApex, double FlatAreaRatio, double SteepAreaRatio, double RepeatedSteepGradeRatio,
     int BiomeCount, double DominantBiomeRatio, double DominantGeologyRatio, int BiomeComponents,
     double RiverCoverage, double WaterCoverage, int RiverCells, int BrokenRiverCells, int UphillDrainageCells, int UphillRiverCells, int DrainageOutlets,
     int CaveEntrances, int InaccessibleEntrances, double ReachableCaveRatio, long CaveAirCells, int LabyrinthWalkableCells,
-    IReadOnlyList<string> Issues);
+    IReadOnlyList<string> Issues, IReadOnlyList<string> RealGeologyFindings);

@@ -49,6 +49,7 @@ public sealed class TerrainGenerator
                 GeologicalProfile profile = GeologicalProfiles.For(geology);
                 double hardness = Math.Max(.12, Math.Min(.98, profile.Hardness + featureB * .08));
                 double h = FormHeight(_settings.TerrainStyle, continent, region, ridge, fault, plateauNoise, basin, detail, featureA, featureB, hardness);
+                h += SignatureRelief(_settings.TerrainStyle, px, pz, (n - 1) * map.CellSize);
                 int i = map.Index(x, z);
                 map.Height[i] = (float)Math.Max(4, h);
                 map.Ridge[i] = (float)ridge;
@@ -70,8 +71,8 @@ public sealed class TerrainGenerator
             _ => .78f
         };
         float maximumApex = _settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f;
-        Erosion.RelaxSlopes(map, maximumGradient, 30);
-        Erosion.SuppressIsolatedApexes(map, maximumApex, 3);
+        Erosion.RelaxSlopes(map, maximumGradient, 90);
+        Erosion.SuppressIsolatedApexes(map, maximumApex, 6);
         map.ErosionMassDelta = map.Height.Sum(x => (double)x) - massBeforeErosion;
         Hydrology.Apply(map, _settings);
         CalculateSlopes(map);
@@ -79,6 +80,32 @@ public sealed class TerrainGenerator
         ClassifyLandforms(map);
         ClassifyClimate(map);
         return map;
+    }
+
+    private double SignatureRelief(TerrainStyle style, double px, double pz, double extent)
+    {
+        double nx = px / Math.Max(1, extent) - .5, nz = pz / Math.Max(1, extent) - .5;
+        double phase = ((_seed >> 16) & 0xffff) / 65535d * Math.PI * 2;
+        double center = Math.Sin(nx * 5.2 + phase) * .13;
+        double mountain = _settings.MountainHeight * _settings.ReliefStrength;
+        return style switch
+        {
+            TerrainStyle.Alpine => Math.Exp(-Math.Pow((nz - center) / .17, 2)) * mountain * (.29 + .08 * Math.Cos(nx * 8 + phase)),
+            TerrainStyle.Glacial => (Math.Exp(-Math.Pow((nz - center - .20) / .15, 2)) + Math.Exp(-Math.Pow((nz - center + .20) / .15, 2))) * mountain * .17
+                - Math.Exp(-Math.Pow((nz - center) / .18, 2)) * mountain * .06,
+            TerrainStyle.Volcanic => VolcanicSignature(nx, nz, phase, mountain),
+            TerrainStyle.Natural => Math.Exp(-Math.Pow((nz - center) / .18, 2)) * mountain * .09,
+            _ => 0
+        };
+    }
+
+    private static double VolcanicSignature(double nx, double nz, double phase, double mountain)
+    {
+        double cx = Math.Cos(phase) * .13, cz = Math.Sin(phase) * .13;
+        double radiusSquared = (nx - cx) * (nx - cx) + (nz - cz) * (nz - cz);
+        double cone = Math.Exp(-radiusSquared / .032) * mountain * .27;
+        double caldera = Math.Exp(-radiusSquared / .0022) * mountain * .10;
+        return cone - caldera;
     }
 
     private double FormHeight(TerrainStyle style, double continent, double region, double ridge, double fault, double plateauNoise, double basin, double detail, double featureA, double featureB, double hardness)
@@ -160,24 +187,27 @@ public sealed class TerrainGenerator
             bool wet = map.RiverChannel[i] || map.WaterDepth[i] > 0;
             map.Landforms[i] = _settings.TerrainStyle switch
             {
-                TerrainStyle.Alpine when curve < -.045f && ridge > .52f => LandformKind.Cirque,
-                TerrainStyle.Alpine when ridge > .62f => LandformKind.Ridge,
+                TerrainStyle.Alpine when curve < -.018f && ridge > .34f => LandformKind.Cirque,
+                TerrainStyle.Alpine when ridge > .42f || slope > .38f => LandformKind.Ridge,
                 TerrainStyle.Canyonlands when strata > .62f && slope < .34f => LandformKind.Mesa,
                 TerrainStyle.Canyonlands when slope > .55f => LandformKind.Escarpment,
                 TerrainStyle.Karst when curve < -.035f && slope < .28f => LandformKind.Sinkhole,
                 TerrainStyle.Karst when !wet && curve < -.012f => LandformKind.DryValley,
-                TerrainStyle.RollingPlains when wet && slope < .16f => LandformKind.Floodplain,
-                TerrainStyle.RollingPlains when curve > .018f && slope < .28f => LandformKind.Terrace,
-                TerrainStyle.Glacial when curve > .035f && ridge > .42f => LandformKind.Moraine,
-                TerrainStyle.Glacial when curve < -.04f => LandformKind.Cirque,
-                TerrainStyle.Volcanic when ridge > .66f && strata > .55f => LandformKind.VolcanicCone,
-                TerrainStyle.Volcanic when curve < -.045f && ridge > .48f => LandformKind.Caldera,
-                TerrainStyle.Volcanic when strata > .58f => LandformKind.LavaField,
+                TerrainStyle.RollingPlains when wet && slope < .22f => LandformKind.Floodplain,
+                TerrainStyle.RollingPlains when slope < .10f => LandformKind.Plain,
+                TerrainStyle.RollingPlains when curve > .006f && slope < .32f => LandformKind.Terrace,
+                TerrainStyle.Glacial when curve > .012f && (ridge > .28f || slope < .18f) => LandformKind.Moraine,
+                TerrainStyle.Glacial when curve < -.014f => LandformKind.Cirque,
+                TerrainStyle.Glacial when ridge > .40f => LandformKind.Ridge,
+                TerrainStyle.Volcanic when ridge > .48f && strata > .42f => LandformKind.VolcanicCone,
+                TerrainStyle.Volcanic when curve < -.014f && ridge > .30f => LandformKind.Caldera,
+                TerrainStyle.Volcanic when strata > .42f => LandformKind.LavaField,
                 _ when wet && slope < .18f => LandformKind.Floodplain,
                 _ when ridge > .64f => LandformKind.Ridge,
                 _ when slope > .48f => LandformKind.Massif,
-                _ when curve < -.018f => LandformKind.Valley,
-                _ when slope < .08f => LandformKind.Plain,
+                _ when curve < -.010f => LandformKind.Valley,
+                _ when curve > .014f && slope < .20f => LandformKind.Basin,
+                _ when slope < .11f => LandformKind.Plain,
                 _ => LandformKind.Hill
             };
         }
@@ -216,7 +246,7 @@ public sealed class TerrainGenerator
             double px = x * map.CellSize, pz = z * map.CellSize;
             float altitude = map.Height[i], slope = map.Slope[i];
             float latitude = Math.Abs(z / (float)(n - 1) * 2 - 1);
-            float ecology = (float)_featureA.Sample(px, pz);
+            float ecology = (float)_featureA.Sample(px, pz) + (float)Math.Sin((px + pz) / 260d + (_seed & 1023) * .013) * .18f;
             float temperature = 29 - latitude * 22 - altitude * .016f + (float)_temperature.Sample(px, pz) * 5;
             float broadMoisture = .45f + (float)_moisture.Sample(px, pz) * .78f;
             float moisture = Clamp01(broadMoisture * .72f + rainShadow[i] * .28f + (map.WaterDepth[i] > 0 ? .22f : 0));
@@ -231,8 +261,8 @@ public sealed class TerrainGenerator
             else if (temperature < 3) map.Biomes[i] = moisture > .46f ? Biome.Taiga : Biome.Tundra;
             else if (temperature > 24) map.Biomes[i] = moisture < .30f ? Biome.Desert : moisture > .76f ? Biome.Jungle : Biome.Savanna;
             else if (moisture > .78f && slope < .10f) map.Biomes[i] = Biome.Swamp;
-            else if (moisture > .55f + ecology * .08f) map.Biomes[i] = Biome.Forest;
-            else if (moisture < .39f + ecology * .06f && slope < .34f) map.Biomes[i] = Biome.Savanna;
+            else if (moisture > .53f + ecology * .16f) map.Biomes[i] = Biome.Forest;
+            else if (moisture < .43f + ecology * .12f && slope < .34f) map.Biomes[i] = Biome.Savanna;
             else map.Biomes[i] = Biome.Grassland;
         }
         MarkBeaches(map);
