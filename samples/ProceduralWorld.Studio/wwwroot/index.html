@@ -77,6 +77,17 @@
     <aside class="right-panel panel">
       <section>
         <div class="section-title"><span>03</span> PARÂMETROS</div>
+        <label class="field-label" for="materialStyle">APARÊNCIA DO TERRENO</label>
+        <select id="materialStyle">
+          <option value="technical">Mapa técnico</option>
+          <option value="stylized">Estilizado</option>
+          <option value="realistic" selected>Realista PBR</option>
+          <option value="satellite">Satélite</option>
+          <option value="diorama">Miniatura / diorama</option>
+        </select>
+        <label class="field-label" for="materialQuality">QUALIDADE DOS MATERIAIS</label>
+        <select id="materialQuality"><option value="low">Baixa</option><option value="medium" selected>Média</option><option value="high">Alta</option></select>
+        <div id="materialHint" class="material-hint">Mistura realista por altitude, declive, umidade, bioma e água.</div>
         <div class="slider-field"><label>ALTURA DAS MONTANHAS <output id="mountainOut">720 m</output></label><input id="mountain" type="range" min="120" max="1400" value="720" step="20"></div>
         <div class="slider-field"><label>FORÇA DO RELEVO <output id="reliefOut">1.00</output></label><input id="relief" type="range" min="20" max="200" value="100"></div>
         <div class="slider-field"><label>EROSÃO <output id="erosionOut">24 ciclos</output></label><input id="erosion" type="range" min="0" max="100" value="24"></div>

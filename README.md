@@ -126,6 +126,8 @@ dotnet run --project samples/ProceduralWorld.Backtest -- 65,129 artifacts/backte
 
 O terceiro argumento define a quantidade de seeds. `real-geology-summary.md` compara relevo relativo, distribuição de declives, drenagem e formas diagnósticas com arquétipos documentados pelo USGS. Essa análise é geomorfológica e não substitui uma comparação célula a célula com um modelo digital de elevação real.
 
+O Studio oferece cinco aparências intercambiáveis sem regenerar o mundo: **mapa técnico**, **estilizado**, **realista PBR**, **satélite** e **miniatura/diorama**. Os níveis baixo, médio e alto ajustam suavização, densidade de detalhes, vegetação e custo do WebGL. A mistura visual considera altitude, declive, bioma e água, funciona no 2D e no 3D e é incluída na configuração JSON exportada.
+
 O Studio é uma ferramenta de autoria separada dos jogos. Ele consome `ProceduralWorld.Core`, mas nenhuma interface do Studio precisa ser incorporada ao HUD do jogo final.
 
 ### Criar um projeto em uma engine

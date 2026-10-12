@@ -70,11 +70,16 @@ function biomeColor(biome) {
   return [0x326d7b,0x315a78,0xd7c58e,0xb99769,0xa4a765,0x6d9a64,0x3f7657,0x2e6550,0x536d57,0x648075,0xa6aaa0,0x77746d,0xe2e6e4][biome] ?? 0x758078;
 }
 
-function terrainColor(world, index, normalized, view) {
+function terrainColor(world, index, normalized, view, options) {
   if (view === 'biomes') return new THREE.Color(biomeColor(world.biomes[index]));
   if (view === 'slope') return new THREE.Color().lerpColors(new THREE.Color(0xe1e2da), new THREE.Color(0x393f3d), Math.min(1, world.slope[index] / 1.3));
   if (view === 'water') return new THREE.Color(world.waterDepth[index] > .01 ? 0x238fc2 : 0x263d32);
   if (world.waterDepth[index] > .04) return new THREE.Color(0x347fa5);
+  const style=options?.style||'realistic', biome=world.biomes[index], slope=world.slope[index];
+  if(style==='stylized')return new THREE.Color(biomeColor(biome)).offsetHSL(0,.06,.03);
+  if(style==='satellite'){const grain=.88+(((index*1103515245+world.seed)>>>9)&31)/150;return new THREE.Color(biomeColor(biome)).multiplyScalar(grain).offsetHSL(0,.08,-.03)}
+  if(style==='diorama'){if(normalized>.82)return new THREE.Color(0xe8e0cf);if(slope>.42)return new THREE.Color(0x7c6b5b);if(normalized>.48)return new THREE.Color(0x69844c);return new THREE.Color(0x4d7748)}
+  if(style==='realistic'){if(normalized>.84)return new THREE.Color(0xecefeb);if(slope>.48)return new THREE.Color(0x706a60);if(biome===2||biome===3)return new THREE.Color(0xbea46f);if(biome===6||biome===7)return new THREE.Color(0x30683d);if(normalized>.5)return new THREE.Color(0x687e4c);return new THREE.Color(0x467043)}
   if (normalized > .82) return new THREE.Color(0xe4e8e4);
   if (normalized > .62 && world.slope[index] > .38) return new THREE.Color(0x77756d);
   if (normalized > .55) return new THREE.Color(0x70815d);
@@ -82,7 +87,7 @@ function terrainColor(world, index, normalized, view) {
   return new THREE.Color(0x5c7d50);
 }
 
-function createTerrain(world, view, root) {
+function createTerrain(world, view, root, options) {
   const n = world.size, count = n * n, min = world.report.minimumHeight, max = world.report.maximumHeight, span = Math.max(1, max - min);
   const positions = new Float32Array(count * 3), colors = new Float32Array(count * 3), indices = [];
   for (let z = 0; z < n; z++) for (let x = 0; x < n; x++) {
@@ -90,7 +95,7 @@ function createTerrain(world, view, root) {
     positions[p] = x / (n - 1) * 100 - 50;
     positions[p + 1] = normalized * 34;
     positions[p + 2] = z / (n - 1) * 100 - 50;
-    terrainColor(world, i, normalized, view).toArray(colors, p);
+    terrainColor(world, i, normalized, view, options).toArray(colors, p);
   }
   for (let z = 0; z < n - 1; z++) for (let x = 0; x < n - 1; x++) {
     const a = z * n + x, b = a + 1, c = a + n, d = c + 1;
@@ -101,12 +106,13 @@ function createTerrain(world, view, root) {
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
-  const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .88, metalness: 0, flatShading: false }));
+  const realistic=options?.style==='realistic', quality=options?.quality||'medium';
+  const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: realistic ? .82 : .9, metalness: 0, flatShading: quality==='low' }));
   terrain.castShadow = terrain.receiveShadow = true;
   root.add(terrain);
   createWalls(world, min, span, root);
   createWater(world, min, span, root);
-  createDetails(world, min, span, root, view);
+  if(quality!=='low')createDetails(world, min, span, root, view, quality);
 }
 
 function point(world, x, z, min, span, yOffset = 0) {
@@ -135,22 +141,23 @@ function createWater(world, min, span, root) {
   const water=new THREE.Mesh(geometry,new THREE.MeshPhysicalMaterial({color:0x187fb4,roughness:.16,metalness:.08,transparent:true,opacity:.78,clearcoat:1,clearcoatRoughness:.12}));water.receiveShadow=true;root.add(water);
 }
 
-function createDetails(world,min,span,root,view){
+function createDetails(world,min,span,root,view,quality){
   if(view!=='terrain'&&view!=='biomes')return;const n=world.size,dummy=new THREE.Object3D(),treePoints=[],rockPoints=[],cavePoints=[];
-  const stride=Math.max(2,Math.floor(n/52));for(let z=2;z<n-2;z+=stride)for(let x=2;x<n-2;x+=stride){const i=z*n+x,hash=((x*73856093)^(z*19349663)^world.seed)>>>0;if((world.biomes[i]===6||world.biomes[i]===7||world.biomes[i]===9)&&world.waterDepth[i]<.01&&hash%5<2)treePoints.push([x,z,hash]);else if(world.slope[i]>.58&&hash%19===0)rockPoints.push([x,z,hash])}
+  const density=quality==='high'?64:44,stride=Math.max(2,Math.floor(n/density));for(let z=2;z<n-2;z+=stride)for(let x=2;x<n-2;x+=stride){const i=z*n+x,hash=((x*73856093)^(z*19349663)^world.seed)>>>0;if((world.biomes[i]===6||world.biomes[i]===7||world.biomes[i]===9)&&world.waterDepth[i]<.01&&hash%5<2)treePoints.push([x,z,hash]);else if(world.slope[i]>.58&&hash%19===0)rockPoints.push([x,z,hash])}
   for(let z=0;z<n;z++)for(let x=0;x<n;x++){const i=z*n+x;if(world.caveOpening?.[i]&&((x+z)%3===0))cavePoints.push([x,z,0])}
   const trees=new THREE.InstancedMesh(new THREE.ConeGeometry(.48,2.7,7),new THREE.MeshStandardMaterial({color:0x214c2d,roughness:.94}),treePoints.length);trees.castShadow=true;treePoints.forEach(([x,z,hash],i)=>{const p=point(world,x,z,min,span,1.3);dummy.position.copy(p);const s=.72+(hash%100)/250;dummy.scale.set(s,s,s);dummy.rotation.y=(hash%628)/100;dummy.updateMatrix();trees.setMatrixAt(i,dummy.matrix)});root.add(trees);
   const rocks=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.65,0),new THREE.MeshStandardMaterial({color:0x68665d,roughness:1}),rockPoints.length);rocks.castShadow=true;rockPoints.forEach(([x,z,hash],i)=>{dummy.position.copy(point(world,x,z,min,span,.35));const s=.5+(hash%80)/100;dummy.scale.set(s,s*.7,s);dummy.rotation.set(hash%7,hash%11,hash%5);dummy.updateMatrix();rocks.setMatrixAt(i,dummy.matrix)});root.add(rocks);
   const caves=new THREE.InstancedMesh(new THREE.SphereGeometry(.7,10,7),new THREE.MeshStandardMaterial({color:0x050605,roughness:1}),cavePoints.length);cavePoints.forEach(([x,z],i)=>{dummy.position.copy(point(world,x,z,min,span,.2));dummy.scale.set(1,.7,.45);dummy.updateMatrix();caves.setMatrixAt(i,dummy.matrix)});root.add(caves);
 }
 
-function render(world, view) {
+function render(world, view, options) {
   if (!initialize()) return false;
   activeWorld = world; activeView = view;
   disposeObject(worldRoot);
   worldRoot = new THREE.Group();
   scene.add(worldRoot);
-  createTerrain(world, view, worldRoot);
+  renderer.setPixelRatio(Math.min(devicePixelRatio, options?.quality==='high'?2:options?.quality==='low'?1:1.5));
+  createTerrain(world, view, worldRoot, options);
   return true;
 }
 
