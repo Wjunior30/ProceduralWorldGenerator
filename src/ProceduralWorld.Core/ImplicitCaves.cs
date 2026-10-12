@@ -47,13 +47,22 @@ public sealed class ImplicitCaveSystem
 
 public static class CaveRouteFactory
 {
-    public static CaveRoute DescendingEntrance(long seed, WorldPoint surface, double length, double radius, CaveProfile profile)
+    public static CaveRoute DescendingEntrance(long seed, WorldPoint surface, double length, double radius, CaveProfile profile, double directionX = 1, double directionZ = 0)
     {
-        var random = new SplitMix64(PositionalHash.Mix((ulong)seed)); var points = new List<WorldPoint> { surface };
-        for (int i = 1; i <= 8; i++)
+        double directionLength = Math.Max(.0001, Math.Sqrt(directionX * directionX + directionZ * directionZ));
+        directionX /= directionLength; directionZ /= directionLength;
+        double normalX = -directionZ, normalZ = directionX;
+        var random = new SplitMix64(PositionalHash.Mix((ulong)seed));
+        var points = new List<WorldPoint> { surface };
+        double phase = random.NextDouble() * Math.PI * 2;
+        for (int i = 1; i <= 10; i++)
         {
-            double t = i / 8d, bend = (random.NextDouble() - .5) * radius * 1.4;
-            points.Add(new(surface.X + length * t + bend, surface.Y - length * (.25 + .55 * t) * t, surface.Z + Math.Sin(t * Math.PI * 2) * radius + bend * .5));
+            double t = i / 10d;
+            double bend = Math.Sin(t * Math.PI * 2 + phase) * radius * (1.1 - t * .35) + (random.NextDouble() - .5) * radius * .35;
+            double forward = length * t;
+            points.Add(new(surface.X + directionX * forward + normalX * bend,
+                surface.Y - length * (.18 + .62 * t) * t,
+                surface.Z + directionZ * forward + normalZ * bend));
         }
         return new(points, radius, profile);
     }

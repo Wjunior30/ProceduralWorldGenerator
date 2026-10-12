@@ -7,10 +7,23 @@ public readonly record struct WorldPoint(double X, double Y, double Z)
 
 public sealed class RiverChannel
 {
+    public const double MaximumHydraulicGrade = .08;
     public RiverChannel(string id, IEnumerable<WorldPoint> points, double baseWidth)
     {
-        Id = id; Points = points.ToArray(); BaseWidth = baseWidth;
-        if (Points.Count < 2) throw new ArgumentException("A river needs at least two points.");
+        Id = id; var profile = points.ToArray(); BaseWidth = baseWidth;
+        if (profile.Length < 2) throw new ArgumentException("A river needs at least two points.");
+        for (int i = 1; i < profile.Length; i++)
+            if (profile[i].Y > profile[i - 1].Y + .001) throw new InvalidOperationException("River water must not flow uphill.");
+        // Lower upstream shelves until every segment follows a renderable grade.
+        // This prevents an engine adapter from joining valid samples with a
+        // vertical sheet of water while never raising water above its input.
+        for (int i = profile.Length - 2; i >= 0; i--)
+        {
+            double horizontal = profile[i].DistanceXZ(profile[i + 1]);
+            double ceiling = profile[i + 1].Y + horizontal * MaximumHydraulicGrade;
+            if (profile[i].Y > ceiling) profile[i] = new WorldPoint(profile[i].X, ceiling, profile[i].Z);
+        }
+        Points = profile;
     }
     public string Id { get; }
     public IReadOnlyList<WorldPoint> Points { get; }
@@ -44,8 +57,6 @@ public sealed class RiverNetwork
     public IReadOnlyList<RiverChannel> Channels => _channels;
     public void Add(RiverChannel channel)
     {
-        for (int i = 1; i < channel.Points.Count; i++)
-            if (channel.Points[i].Y > channel.Points[i - 1].Y + .001) throw new InvalidOperationException("River water must not flow uphill.");
         _channels.Add(channel);
     }
     public double Carve(double x, double z, double terrainHeight)

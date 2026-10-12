@@ -6,26 +6,28 @@ public readonly record struct TerrainVertex(Vector3 Position, Vector3 Normal, Ve
 
 public sealed class TerrainMeshData
 {
-    public TerrainMeshData(IReadOnlyList<TerrainVertex> vertices, IReadOnlyList<int> indices, int sampleStep)
-    { Vertices = vertices; Indices = indices; SampleStep = sampleStep; }
+    public TerrainMeshData(IReadOnlyList<TerrainVertex> vertices, IReadOnlyList<int> indices, int sampleStep, int skirtVertexCount = 0)
+    { Vertices = vertices; Indices = indices; SampleStep = sampleStep; SkirtVertexCount = skirtVertexCount; }
     public IReadOnlyList<TerrainVertex> Vertices { get; }
     public IReadOnlyList<int> Indices { get; }
     public int SampleStep { get; }
+    public int SkirtVertexCount { get; }
 }
 
 public static class TerrainMeshBuilder
 {
-    public static TerrainMeshData Build(SurfaceMap map, int originX = 0, int originZ = 0, int size = 0, int sampleStep = 1)
+    public static TerrainMeshData Build(SurfaceMap map, int originX = 0, int originZ = 0, int size = 0, int sampleStep = 1, bool includeSkirts = false, float skirtDepth = 24)
     {
         if (sampleStep < 1) throw new ArgumentOutOfRangeException(nameof(sampleStep));
+        if (skirtDepth <= 0) throw new ArgumentOutOfRangeException(nameof(skirtDepth));
         if (size == 0) size = map.Size - Math.Max(originX, originZ);
         if (originX < 0 || originZ < 0 || size < 2 || originX + size > map.Size || originZ + size > map.Size)
             throw new ArgumentOutOfRangeException(nameof(size));
 
-        var xs = SampleAxis(originX, size, sampleStep);
-        var zs = SampleAxis(originZ, size, sampleStep);
-        var vertices = new List<TerrainVertex>(xs.Count * zs.Count);
-        var indices = new List<int>((xs.Count - 1) * (zs.Count - 1) * 6);
+        List<int> xs = SampleAxis(originX, size, sampleStep);
+        List<int> zs = SampleAxis(originZ, size, sampleStep);
+        var vertices = new List<TerrainVertex>(xs.Count * zs.Count + (includeSkirts ? (xs.Count + zs.Count) * 2 : 0));
+        var indices = new List<int>((xs.Count - 1) * (zs.Count - 1) * 6 + (includeSkirts ? (xs.Count + zs.Count) * 12 : 0));
         foreach (int z in zs) foreach (int x in xs)
         {
             int i = map.Index(x, z);
@@ -44,7 +46,31 @@ public static class TerrainMeshBuilder
             if (diagonalAd <= diagonalBc) { indices.Add(a); indices.Add(c); indices.Add(d); indices.Add(a); indices.Add(d); indices.Add(b); }
             else { indices.Add(a); indices.Add(c); indices.Add(b); indices.Add(b); indices.Add(c); indices.Add(d); }
         }
-        return new TerrainMeshData(vertices, indices, sampleStep);
+        int skirtStart = vertices.Count;
+        if (includeSkirts)
+        {
+            AddSkirt(Enumerable.Range(0, width).ToArray());
+            AddSkirt(Enumerable.Range(0, zs.Count).Select(row => row * width + width - 1).ToArray());
+            AddSkirt(Enumerable.Range(0, width).Reverse().Select(column => (zs.Count - 1) * width + column).ToArray());
+            AddSkirt(Enumerable.Range(0, zs.Count).Reverse().Select(row => row * width).ToArray());
+        }
+        return new TerrainMeshData(vertices, indices, sampleStep, vertices.Count - skirtStart);
+
+        void AddSkirt(IReadOnlyList<int> edge)
+        {
+            int lowerStart = vertices.Count;
+            foreach (int source in edge)
+            {
+                TerrainVertex vertex = vertices[source];
+                vertices.Add(vertex with { Position = new Vector3(vertex.Position.X, vertex.Position.Y - skirtDepth, vertex.Position.Z) });
+            }
+            for (int i = 0; i + 1 < edge.Count; i++)
+            {
+                int topA = edge[i], topB = edge[i + 1], lowA = lowerStart + i, lowB = lowerStart + i + 1;
+                indices.Add(topA); indices.Add(lowA); indices.Add(lowB);
+                indices.Add(topA); indices.Add(lowB); indices.Add(topB);
+            }
+        }
     }
 
     public static int RecommendedSampleStep(float distanceInCells)

@@ -4,18 +4,33 @@ public enum GeologicalIdentity { AlluvialBasin, ErodedMassif, KarstHighland, Bad
 
 public sealed record GeologicalProfile(
     GeologicalIdentity Identity, float MacroRelief, float RidgeSharpness, float Erosion, float Strata,
-    float Fissures, float Talus, float CaveDensity, float RiverAffinity);
+    float Fissures, float Talus, float CaveDensity, float RiverAffinity, float Hardness);
 
 public static class GeologicalProfiles
 {
+    private static readonly IReadOnlyDictionary<GeologicalIdentity, GeologicalProfile> Profiles =
+        new Dictionary<GeologicalIdentity, GeologicalProfile>
+        {
+            [GeologicalIdentity.AlluvialBasin] = new(GeologicalIdentity.AlluvialBasin, .20f, .04f, .88f, .38f, .04f, .12f, .20f, 1f, .24f),
+            [GeologicalIdentity.ErodedMassif] = new(GeologicalIdentity.ErodedMassif, .74f, .42f, .82f, .48f, .32f, .62f, .62f, .86f, .66f),
+            [GeologicalIdentity.KarstHighland] = new(GeologicalIdentity.KarstHighland, .72f, .38f, .74f, .74f, .58f, .55f, 1f, .68f, .58f),
+            [GeologicalIdentity.BadlandsMesa] = new(GeologicalIdentity.BadlandsMesa, .58f, .28f, .48f, 1f, .46f, .78f, .34f, .22f, .52f),
+            [GeologicalIdentity.GlacialRange] = new(GeologicalIdentity.GlacialRange, 1f, .72f, .70f, .24f, .38f, .88f, .38f, .74f, .82f),
+            [GeologicalIdentity.VolcanicPlateau] = new(GeologicalIdentity.VolcanicPlateau, .68f, .62f, .34f, .62f, .72f, .64f, .76f, .35f, .88f)
+        };
+
+    public static GeologicalProfile For(GeologicalIdentity identity) => Profiles[identity];
+
+    // Compatibility helper for callers that only have a biome. Terrain generation
+    // assigns geology first and does not use this mapping.
     public static GeologicalProfile For(Biome biome) => biome switch
     {
-        Biome.River or Biome.Lake or Biome.Swamp => new(GeologicalIdentity.AlluvialBasin, .25f, .05f, .85f, .45f, .05f, .15f, .2f, 1f),
-        Biome.Rock => new(GeologicalIdentity.KarstHighland, .9f, .55f, .75f, .7f, .65f, .7f, 1f, .65f),
-        Biome.Desert => new(GeologicalIdentity.BadlandsMesa, .65f, .3f, .55f, 1f, .55f, .8f, .45f, .12f),
-        Biome.Snow or Biome.Tundra => new(GeologicalIdentity.GlacialRange, 1f, .7f, .8f, .3f, .4f, .85f, .4f, .75f),
-        Biome.Jungle or Biome.Forest => new(GeologicalIdentity.ErodedMassif, .75f, .4f, 1f, .5f, .35f, .6f, .75f, .9f),
-        _ => new(GeologicalIdentity.VolcanicPlateau, .55f, .5f, .4f, .65f, .45f, .55f, .55f, .45f)
+        Biome.River or Biome.Lake or Biome.Swamp or Biome.Beach => For(GeologicalIdentity.AlluvialBasin),
+        Biome.Desert => For(GeologicalIdentity.BadlandsMesa),
+        Biome.Snow or Biome.Tundra => For(GeologicalIdentity.GlacialRange),
+        Biome.Jungle or Biome.Forest => For(GeologicalIdentity.ErodedMassif),
+        Biome.Rock => For(GeologicalIdentity.ErodedMassif),
+        _ => For(GeologicalIdentity.AlluvialBasin)
     };
 }
 
@@ -24,11 +39,13 @@ public static class GeologicalShapes
     public static double ErodedMassif(double baseNoise, double ridge, double erosion)
         => Math.Pow(Math.Max(0, baseNoise), .75) * (1 + Math.Max(0, ridge) * .65) * (1 - Math.Max(0, erosion) * .45);
     public static double AngularPeak(double ridge, double detail)
-        => Math.Pow(Math.Max(0, ridge), .48) + detail * .12;
+        => Math.Pow(Math.Max(0, ridge), .62) + detail * .10;
     public static double Mesa(double baseNoise, double strata)
     {
-        double terrace = Math.Round(Math.Max(0, baseNoise) * 7) / 7d;
-        return terrace + strata * .035;
+        double level = Math.Floor(Math.Max(0, baseNoise) * 6);
+        double local = Math.Max(0, baseNoise) * 6 - level;
+        double softened = local * local * (3 - 2 * local);
+        return (level + softened) / 6d + strata * .028;
     }
     public static double Talus(double slope, double debris) => Math.Max(0, slope - .35) * (.35 + debris * .65);
     public static double Fissure(double signedNoise, double width) => 1 - Smooth(0, Math.Max(.0001, width), Math.Abs(signedNoise));
@@ -40,19 +57,48 @@ public readonly record struct Stratum(float MinimumHeight, float MaximumHeight, 
 public sealed class GeologicalColumn
 {
     public GeologicalColumn(Biome biome, float elevation, float slope)
+        : this(GeologicalProfiles.For(biome).Identity, biome, elevation, slope, 0) { }
+
+    public GeologicalColumn(GeologicalIdentity identity, Biome biome, float elevation, float slope, float strata)
     {
-        Biome = biome; Elevation = elevation; Slope = slope; Profile = GeologicalProfiles.For(biome);
-        Strata = BuildStrata(Profile, elevation);
+        Identity = identity; Biome = biome; Elevation = elevation; Slope = slope; StrataPhase = strata;
+        Profile = GeologicalProfiles.For(identity); Strata = BuildStrata(Profile, elevation, strata);
     }
+    public GeologicalIdentity Identity { get; }
     public Biome Biome { get; }
     public float Elevation { get; }
     public float Slope { get; }
+    public float StrataPhase { get; }
     public GeologicalProfile Profile { get; }
     public IReadOnlyList<Stratum> Strata { get; }
-    private static IReadOnlyList<Stratum> BuildStrata(GeologicalProfile profile, float top) => new[]
+
+    private static IReadOnlyList<Stratum> BuildStrata(GeologicalProfile profile, float top, float phase)
     {
-        new Stratum(top - 3, top, "regolith", .2f),
-        new Stratum(top - 22, top - 3, profile.Identity == GeologicalIdentity.BadlandsMesa ? "sandstone" : "weathered-rock", .55f),
-        new Stratum(float.MinValue, top - 22, profile.Identity == GeologicalIdentity.KarstHighland ? "limestone" : "bedrock", 1f)
-    };
+        float regolith = 2.2f + (1 - profile.Hardness) * 3.5f;
+        float weathered = 15 + profile.Strata * 15 + phase * 3;
+        string middle = profile.Identity switch
+        {
+            GeologicalIdentity.BadlandsMesa => "sandstone",
+            GeologicalIdentity.KarstHighland => "weathered-limestone",
+            GeologicalIdentity.GlacialRange => "fractured-granite",
+            GeologicalIdentity.VolcanicPlateau => "weathered-basalt",
+            GeologicalIdentity.AlluvialBasin => "compacted-sediment",
+            _ => "weathered-rock"
+        };
+        string baseMaterial = profile.Identity switch
+        {
+            GeologicalIdentity.KarstHighland => "limestone",
+            GeologicalIdentity.VolcanicPlateau => "basalt",
+            GeologicalIdentity.GlacialRange => "granite",
+            GeologicalIdentity.BadlandsMesa => "cemented-sandstone",
+            GeologicalIdentity.AlluvialBasin => "sedimentary-bedrock",
+            _ => "bedrock"
+        };
+        return new[]
+        {
+            new Stratum(top - regolith, top, "regolith", .18f + profile.Hardness * .12f),
+            new Stratum(top - weathered, top - regolith, middle, Math.Min(.9f, profile.Hardness * .72f)),
+            new Stratum(float.MinValue, top - weathered, baseMaterial, profile.Hardness)
+        };
+    }
 }

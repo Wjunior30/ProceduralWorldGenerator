@@ -6,7 +6,7 @@ public enum TerrainStyle { Natural, Alpine, Canyonlands, Karst, RollingPlains, G
 
 public sealed class WorldSettings
 {
-    public int GenerationVersion { get; set; } = 2;
+    public int GenerationVersion { get; set; } = 4;
     public int Size { get; set; } = 129;
     public float CellSize { get; set; } = 8;
     public float BaseElevation { get; set; } = 80;
@@ -38,7 +38,7 @@ public sealed class SurfaceMap
     {
         Size = size; CellSize = cellSize; int count = checked(size * size);
         Height = new float[count]; Slope = new float[count]; Temperature = new float[count]; Moisture = new float[count];
-        Flow = new float[count]; WaterDepth = new float[count]; Sediment = new float[count]; Ridge = new float[count]; Continentalness = new float[count];
+        Flow = new float[count]; WaterDepth = new float[count]; Sediment = new float[count]; Ridge = new float[count]; Continentalness = new float[count]; RockHardness = new float[count]; Strata = new float[count];
         DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
     }
     public int Size { get; }
@@ -52,6 +52,8 @@ public sealed class SurfaceMap
     public float[] Sediment { get; }
     public float[] Ridge { get; }
     public float[] Continentalness { get; }
+    public float[] RockHardness { get; }
+    public float[] Strata { get; }
     public int[] DrainageReceiver { get; }
     public bool[] RiverChannel { get; }
     public Biome[] Biomes { get; }
