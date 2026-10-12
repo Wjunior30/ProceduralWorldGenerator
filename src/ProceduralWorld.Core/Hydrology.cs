@@ -30,6 +30,36 @@ internal static class Hydrology
         DrainageSolution final = Solve(map);
         MarkChannels(map, settings);
         AssignWater(map, settings, final);
+        ClassifyBasinsAndStreams(map, final);
+    }
+
+    private static void ClassifyBasinsAndStreams(SurfaceMap map, DrainageSolution solution)
+    {
+        Array.Clear(map.BasinId, 0, map.BasinId.Length);
+        Array.Clear(map.StreamOrder, 0, map.StreamOrder.Length);
+        var outletLabels = new Dictionary<int, int>();
+        int nextLabel = 0;
+        for (int o = 0; o < solution.Count; o++)
+        {
+            int cell = solution.Order[o], receiver = map.DrainageReceiver[cell];
+            if (receiver < 0) map.BasinId[cell] = outletLabels[cell] = ++nextLabel;
+            else map.BasinId[cell] = map.BasinId[receiver];
+        }
+
+        var maximumIncoming = new byte[map.Height.Length];
+        var maximumCount = new byte[map.Height.Length];
+        for (int o = solution.Count - 1; o >= 0; o--)
+        {
+            int cell = solution.Order[o];
+            if (!map.RiverChannel[cell]) continue;
+            byte order = maximumIncoming[cell] == 0 ? (byte)1 :
+                maximumCount[cell] >= 2 ? (byte)Math.Min(byte.MaxValue, maximumIncoming[cell] + 1) : maximumIncoming[cell];
+            map.StreamOrder[cell] = order;
+            int receiver = map.DrainageReceiver[cell];
+            if (receiver < 0 || !map.RiverChannel[receiver]) continue;
+            if (order > maximumIncoming[receiver]) { maximumIncoming[receiver] = order; maximumCount[receiver] = 1; }
+            else if (order == maximumIncoming[receiver]) maximumCount[receiver]++;
+        }
     }
 
     private static DrainageSolution Solve(SurfaceMap map)

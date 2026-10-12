@@ -74,8 +74,7 @@ public sealed class UniversalWorldGenerator
     private ImplicitCaveSystem BuildCaveGraph(GeneratedWorld world)
     {
         var system = new ImplicitCaveSystem();
-        var ends = new List<(WorldPoint Point, CaveProfile Profile)>();
-        int i = 0;
+        var ends = new List<(int Cell, WorldPoint Point, CaveProfile Profile)>();
         foreach (CaveEntrance entrance in world.Caves.Entrances)
         {
             int cell = world.Surface.Index(entrance.X, entrance.Z);
@@ -88,20 +87,65 @@ public sealed class UniversalWorldGenerator
                 GeologicalIdentity.AlluvialBasin => CaveProfile.Dissolution,
                 _ => CaveProfile.Fracture
             };
-            var start = new WorldPoint(entrance.X * world.Surface.CellSize, entrance.SurfaceY * world.Surface.CellSize, entrance.Z * world.Surface.CellSize);
-            CaveRoute route = CaveRouteFactory.DescendingEntrance(_seed + ++i, start, world.Surface.CellSize * 8, world.Surface.CellSize * 1.2, profile, entrance.FacingX, entrance.FacingZ);
+            int startCell = CaveCell(world.Caves, entrance.X, world.Caves.Height - 2, entrance.Z);
+            int targetCell = CaveCell(world.Caves, entrance.X, entrance.CaveY, entrance.Z);
+            IReadOnlyList<int> voxelPath = FindVoxelPath(world.Caves, startCell, targetCell);
+            var points = voxelPath.Select(id => CavePoint(world, entrance, id)).ToArray();
+            if (points.Length < 2) continue;
+            CaveRoute route = new(points, world.Surface.CellSize * Math.Max(1, entrance.Radius), profile);
             system.AddRoute(route);
             WorldPoint end = route.Points[^1];
             system.AddChamber(new CaveChamber(end, new WorldPoint(world.Surface.CellSize * 4, world.Surface.CellSize * 2.5, world.Surface.CellSize * 3.5), profile));
-            ends.Add((end, profile));
+            ends.Add((targetCell, end, profile));
         }
         if (ends.Count > 1)
         {
-            WorldPoint hub = new(ends.Average(x => x.Point.X), ends.Average(x => x.Point.Y) - world.Surface.CellSize * 2, ends.Average(x => x.Point.Z));
+            int hubCell = ends[0].Cell;
+            WorldPoint hub = ends[0].Point;
             system.AddChamber(new CaveChamber(hub, new WorldPoint(world.Surface.CellSize * 5, world.Surface.CellSize * 3, world.Surface.CellSize * 5), CaveProfile.Dissolution));
-            foreach (var end in ends) system.AddRoute(new CaveRoute(new[] { end.Point, hub }, world.Surface.CellSize * 1.1, end.Profile));
+            foreach (var end in ends.Skip(1))
+            {
+                IReadOnlyList<int> path = FindVoxelPath(world.Caves, end.Cell, hubCell);
+                var points = path.Select(id => CavePoint(world, world.Caves.Entrances[0], id)).ToArray();
+                if (points.Length >= 2) system.AddRoute(new CaveRoute(points, world.Surface.CellSize * 1.1, end.Profile));
+            }
         }
         return system;
+    }
+
+    private static int CaveCell(CaveVolume caves, int x, int y, int z) => (y * caves.Depth + z) * caves.Width + x;
+
+    private static WorldPoint CavePoint(GeneratedWorld world, CaveEntrance reference, int id)
+    {
+        CaveVolume caves = world.Caves;
+        int x = id % caves.Width, t = id / caves.Width, z = t % caves.Depth, y = t / caves.Depth;
+        double top = world.Surface.HeightAt(x, z);
+        return new WorldPoint(x * world.Surface.CellSize, top - (caves.Height - 1 - y) * world.Surface.CellSize, z * world.Surface.CellSize);
+    }
+
+    private static IReadOnlyList<int> FindVoxelPath(CaveVolume caves, int start, int target)
+    {
+        if (start == target) return new[] { start, target };
+        var previous = Enumerable.Repeat(-1, caves.Width * caves.Height * caves.Depth).ToArray();
+        var queue = new Queue<int>(); previous[start] = start; queue.Enqueue(start);
+        int[] dx = { 1, -1, 0, 0, 0, 0 }, dy = { 0, 0, 1, -1, 0, 0 }, dz = { 0, 0, 0, 0, 1, -1 };
+        while (queue.Count > 0 && previous[target] < 0)
+        {
+            int id = queue.Dequeue(), x = id % caves.Width, t = id / caves.Width, z = t % caves.Depth, y = t / caves.Depth;
+            for (int k = 0; k < 6; k++)
+            {
+                int nx = x + dx[k], ny = y + dy[k], nz = z + dz[k];
+                if ((uint)nx >= (uint)caves.Width || (uint)ny >= (uint)caves.Height || (uint)nz >= (uint)caves.Depth || caves.IsSolid(nx, ny, nz)) continue;
+                int next = CaveCell(caves, nx, ny, nz);
+                if (previous[next] >= 0) continue;
+                previous[next] = id; queue.Enqueue(next);
+            }
+        }
+        if (previous[target] < 0) return Array.Empty<int>();
+        var path = new List<int>();
+        for (int at = target; ; at = previous[at]) { path.Add(at); if (at == start) break; }
+        path.Reverse();
+        return path.Where((_, index) => index == 0 || index == path.Count - 1 || index % 3 == 0).ToArray();
     }
 }
 

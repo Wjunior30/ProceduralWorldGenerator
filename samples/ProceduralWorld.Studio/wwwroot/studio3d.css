@@ -1,0 +1,5 @@
+.view-modes { align-items: center; }
+.view-modes i { height: 22px; width: 1px; background: var(--line); margin: 0 5px; }
+.canvas-wrap canvas.hidden { display: none; }
+#terrain3d { cursor: grab; background: radial-gradient(circle at 50% 38%, #26312d, #0b0f0e 70%); }
+#terrain3d.dragging { cursor: grabbing; }

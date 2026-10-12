@@ -1,6 +1,7 @@
 using ProceduralWorld.Core;
 
-static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+var failures = new List<string>();
+void Check(bool condition, string message) { if (!condition) failures.Add(message); }
 static GeneratedWorld Generate(long seed, TerrainStyle style = TerrainStyle.Natural, int size = 65, float cellSize = 8)
 {
     WorldSettings settings = TerrainPresetCatalog.Create(style, size);
@@ -66,6 +67,11 @@ foreach (long seed in auditSeeds)
     Check(report.RepeatedSteepGradeRatio < .04, $"{style}/{seed} saturated too many edges at one grade ({report.RepeatedSteepGradeRatio:P1}).");
     Check(report.DominantBiomeRatio <= .78, $"{style}/{seed} is dominated by one biome ({report.DominantBiomeRatio:P1}).");
     Check(report.DrainageOutlets is >= 2 and <= 12, $"{style}/{seed} produced an invalid outlet count ({report.DrainageOutlets}).");
+    Check(report.ErosionMassRelativeError < 1e-5, $"{style}/{seed} did not conserve erosion mass ({report.ErosionMassRelativeError:E2}).");
+    Check(report.BasinCount == report.DrainageOutlets, $"{style}/{seed} basin and outlet counts disagree.");
+    Check(report.MaximumStreamOrder >= 1, $"{style}/{seed} did not classify its river hierarchy.");
+    Check(report.CaveComponents == 1, $"{style}/{seed} retained disconnected cave components.");
+    Check(world.Caves.Entrances.All(e => world.Surface.CaveOpening[world.Surface.Index(e.X, e.Z)]), $"{style}/{seed} has a cave entrance without a surface opening.");
 }
 
 GeneratedWorld alpine = Generate(2026, TerrainStyle.Alpine);
@@ -83,6 +89,8 @@ TerrainMeshData meshFar = TerrainMeshBuilder.Build(alpine.Surface, sampleStep: 4
 Check(meshNear.Vertices.Count > meshFar.Vertices.Count && meshNear.Indices.Count > 0, "Mesh LOD must reduce geometry with distance.");
 Check(meshNear.SkirtVertexCount > 0 && meshFar.SkirtVertexCount > 0, "LOD meshes must provide optional crack-hiding skirts.");
 Check(meshNear.Vertices.All(v => Math.Abs(v.Normal.Length() - 1) < .001f), "Terrain normals must be normalized.");
+TerrainMeshData seam = TerrainSeamBuilder.Stitch(meshFar.Edge(TerrainEdge.North), meshNear.Edge(TerrainEdge.North));
+Check(seam.Indices.Count == (meshFar.GridWidth + meshNear.GridWidth - 2) * 3, "Mixed-LOD edges must produce a complete transition seam.");
 
 GeneratedWorld coarse = Generate(42, TerrainStyle.Natural, 65, 16);
 GeneratedWorld fine = Generate(42, TerrainStyle.Natural, 129, 8);
@@ -95,4 +103,9 @@ for (int z = 0; z < 65; z++) for (int x = 0; x < 65; x++)
 double resolutionRmse = Math.Sqrt(squaredError / (65 * 65));
 Check(resolutionRmse < 8, $"Changing mesh resolution changed the geography too much (RMSE {resolutionRmse:F2}m).");
 
-Console.WriteLine("ProceduralWorld.Tests: generation v4 geological, hydraulic, cave, LOD and resolution checks passed.");
+if (failures.Count > 0)
+{
+    foreach (string failure in failures) Console.Error.WriteLine("FAIL: " + failure);
+    throw new AggregateException($"{failures.Count} procedural-world checks failed.", failures.Select(x => new Exception(x)));
+}
+Console.WriteLine("ProceduralWorld.Tests: all geological, hydraulic, cave, LOD and resolution checks passed.");

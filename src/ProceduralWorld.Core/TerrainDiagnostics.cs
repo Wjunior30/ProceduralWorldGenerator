@@ -6,7 +6,8 @@ public sealed record TerrainReport(
     int InaccessibleEntrances, int BiomeComponents,
     double FlatAreaRatio, double SteepAreaRatio, double RepeatedSteepGradeRatio,
     int UphillDrainageCells, int UphillRiverCells, double ReachableCaveRatio,
-    double DominantBiomeRatio, double DominantGeologyRatio, int DrainageOutlets);
+    double DominantBiomeRatio, double DominantGeologyRatio, int DrainageOutlets,
+    double ErosionMassRelativeError, int BasinCount, int MaximumStreamOrder, int CaveComponents);
 
 public static class TerrainDiagnostics
 {
@@ -57,12 +58,15 @@ public static class TerrainDiagnostics
             world.Caves.IsSolid(e.X, e.CaveY, e.Z) || !cave.ReachableEntrances.Contains(e));
         double dominantBiome = map.Biomes.GroupBy(x => x).Max(x => x.Count()) / (double)map.Biomes.Length;
         double dominantGeology = map.Geology.GroupBy(x => x).Max(x => x.Count()) / (double)map.Geology.Length;
+        int caveComponents = world.Caves.ComputeComponents().DefaultIfEmpty().Max();
+        double terrainMass = map.Height.Sum(x => Math.Abs((double)x));
         int repeated = steepBuckets.Count == 0 ? 0 : steepBuckets.Values.Max();
         return new TerrainReport(map.Height.Min(), map.Height.Max(), maxRise, maxApex, map.Biomes.Distinct().Count(), riverCells, broken,
             world.Caves.Entrances.Count, inaccessible, components,
             flatEdges / (double)Math.Max(1, edgeCount), steepEdges / (double)Math.Max(1, edgeCount), repeated / (double)Math.Max(1, edgeCount),
             uphillDrainage, uphillRiver, cave.Air == 0 ? 1 : cave.Reachable / (double)cave.Air,
-            dominantBiome, dominantGeology, outlets);
+            dominantBiome, dominantGeology, outlets,
+            Math.Abs(map.ErosionMassDelta) / Math.Max(1, terrainMass), map.BasinId.Distinct().Count(x => x > 0), map.StreamOrder.DefaultIfEmpty().Max(), caveComponents);
 
         void AddEdge(int a, int b)
         {

@@ -6,13 +6,28 @@ public readonly record struct TerrainVertex(Vector3 Position, Vector3 Normal, Ve
 
 public sealed class TerrainMeshData
 {
-    public TerrainMeshData(IReadOnlyList<TerrainVertex> vertices, IReadOnlyList<int> indices, int sampleStep, int skirtVertexCount = 0)
-    { Vertices = vertices; Indices = indices; SampleStep = sampleStep; SkirtVertexCount = skirtVertexCount; }
+    public TerrainMeshData(IReadOnlyList<TerrainVertex> vertices, IReadOnlyList<int> indices, int sampleStep, int skirtVertexCount = 0, int gridWidth = 0, int gridHeight = 0)
+    { Vertices = vertices; Indices = indices; SampleStep = sampleStep; SkirtVertexCount = skirtVertexCount; GridWidth = gridWidth; GridHeight = gridHeight; }
     public IReadOnlyList<TerrainVertex> Vertices { get; }
     public IReadOnlyList<int> Indices { get; }
     public int SampleStep { get; }
     public int SkirtVertexCount { get; }
+    public int GridWidth { get; }
+    public int GridHeight { get; }
+    public IReadOnlyList<TerrainVertex> Edge(TerrainEdge edge)
+    {
+        if (GridWidth < 2 || GridHeight < 2) throw new InvalidOperationException("Mesh grid dimensions are unavailable.");
+        return edge switch
+        {
+            TerrainEdge.North => Enumerable.Range(0, GridWidth).Select(i => Vertices[i]).ToArray(),
+            TerrainEdge.East => Enumerable.Range(0, GridHeight).Select(i => Vertices[i * GridWidth + GridWidth - 1]).ToArray(),
+            TerrainEdge.South => Enumerable.Range(0, GridWidth).Reverse().Select(i => Vertices[(GridHeight - 1) * GridWidth + i]).ToArray(),
+            _ => Enumerable.Range(0, GridHeight).Reverse().Select(i => Vertices[i * GridWidth]).ToArray()
+        };
+    }
 }
+
+public enum TerrainEdge { North, East, South, West }
 
 public static class TerrainMeshBuilder
 {
@@ -54,7 +69,7 @@ public static class TerrainMeshBuilder
             AddSkirt(Enumerable.Range(0, width).Reverse().Select(column => (zs.Count - 1) * width + column).ToArray());
             AddSkirt(Enumerable.Range(0, zs.Count).Reverse().Select(row => row * width).ToArray());
         }
-        return new TerrainMeshData(vertices, indices, sampleStep, vertices.Count - skirtStart);
+        return new TerrainMeshData(vertices, indices, sampleStep, vertices.Count - skirtStart, width, zs.Count);
 
         void AddSkirt(IReadOnlyList<int> edge)
         {
@@ -91,5 +106,30 @@ public static class TerrainMeshBuilder
         float dx = (map.HeightAt(x1, z) - map.HeightAt(x0, z)) / Math.Max(map.CellSize, (x1 - x0) * map.CellSize);
         float dz = (map.HeightAt(x, z1) - map.HeightAt(x, z0)) / Math.Max(map.CellSize, (z1 - z0) * map.CellSize);
         return Vector3.Normalize(new Vector3(-dx, 1, -dz));
+    }
+}
+
+public static class TerrainSeamBuilder
+{
+    public static TerrainMeshData Stitch(IReadOnlyList<TerrainVertex> edgeA, IReadOnlyList<TerrainVertex> edgeB)
+    {
+        if (edgeA.Count < 2 || edgeB.Count < 2) throw new ArgumentException("Both edges need at least two vertices.");
+        var vertices = edgeA.Concat(edgeB).ToArray();
+        var indices = new List<int>((edgeA.Count + edgeB.Count - 2) * 3);
+        int a = 0, b = 0, offset = edgeA.Count;
+        while (a + 1 < edgeA.Count || b + 1 < edgeB.Count)
+        {
+            double nextA = a + 1 < edgeA.Count ? (a + 1d) / (edgeA.Count - 1) : double.PositiveInfinity;
+            double nextB = b + 1 < edgeB.Count ? (b + 1d) / (edgeB.Count - 1) : double.PositiveInfinity;
+            if (nextA <= nextB)
+            {
+                indices.Add(a); indices.Add(offset + b); indices.Add(++a);
+            }
+            else
+            {
+                indices.Add(a); indices.Add(offset + b); indices.Add(offset + ++b);
+            }
+        }
+        return new TerrainMeshData(vertices, indices, Math.Min(edgeA.Count, edgeB.Count), 0, 0, 0);
     }
 }

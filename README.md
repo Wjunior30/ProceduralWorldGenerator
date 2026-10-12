@@ -18,13 +18,20 @@ Gerador determinístico e independente de engine para mundos de jogos. A bibliot
 - malhas com normais e níveis de detalhe para integração com engines;
 - backtest multiseed e diagnósticos de terreno, rios, biomas e cavernas.
 
-Esses sistemas já formam uma base funcional e independente de engine. O realismo geológico ainda é experimental: as proteções atuais evitam falhas extremas, mas também produzem rampas uniformes, picos artificiais, drenagem desatualizada e cavernas parcialmente desconectadas. As prioridades abaixo definem o trabalho necessário antes de considerar a geração geologicamente estável.
+Esses sistemas formam uma base funcional e independente de engine. A geração v4 resolve a geologia antes do clima, conserva massa durante a erosão, recalcula a drenagem sobre o terreno final, controla as saídas de borda e mantém uma única rede subterrânea navegável. O realismo artístico continua evolutivo, mas os bloqueadores estruturais abaixo possuem validação automática multiseed e multirresolução.
+
+## Estado da implementação v4
+
+- **P0 concluído:** geologia estrutural, transporte conservativo, hidrologia final monotônica, cavernas voxel/implícitas derivadas da mesma rede, aberturas de superfície e saídas controladas.
+- **P1 concluído como modelo procedural:** perfis geomorfológicos, classificação de formas de terreno, vento 2D configurável, hierarquia fluvial, planícies de inundação e diversidade de biomas.
+- **P2 concluído:** geografia estável entre resoluções, saias e malhas de transição para LOD, mapas diagnósticos, imagens de regressão e backtest em múltiplas resoluções.
+- Os critérios permanecem documentados abaixo como contrato de regressão, não como lista de tarefas pendentes.
 
 ## Prioridades geológicas
 
 ### P0 — Correção estrutural
 
-Estas tarefas bloqueiam o realismo e devem ser concluídas antes de adicionar novos detalhes visuais.
+Estes requisitos são o contrato estrutural coberto pela suíte de testes e pelo backtest.
 
 1. **Gerar a geologia antes do clima e dos biomas.** Criar províncias tectônicas, litologia, dureza, estratos, falhas e resistência à erosão. O relevo deve nascer dessa estrutura; solo e bioma devem ser consequências dela.
 2. **Substituir o limitador rígido de inclinação.** Usar transporte conservativo de material, talude, deposição e erosão hidráulica. O algoritmo não deve apenas rebaixar pontos altos até um limite fixo.
@@ -92,7 +99,7 @@ var report = TerrainDiagnostics.Analyze(world);
 var mesh = TerrainMeshBuilder.Build(world.Surface, sampleStep: 1);
 ```
 
-`SurfaceMap` expõe altura, declividade, temperatura, umidade, fluxo, profundidade de água, sedimento, cristas, continentalidade, receptor de drenagem, canal principal, bioma e identidade geológica. `ChunkExtractor` entrega os campos necessários para streaming em qualquer engine.
+`SurfaceMap` expõe altura, declividade, curvatura, saturação de inclinação, temperatura, umidade, fluxo, ordem fluvial, bacia, profundidade de água, sedimento, cristas, continentalidade, receptor de drenagem, canal principal, bioma, forma de terreno, abertura de caverna e identidade geológica. `ChunkExtractor` entrega os campos necessários para streaming em qualquer engine.
 
 A etapa final de geologia impõe limites reais de inclinação, remove ápices isolados sem achatar maciços largos e regulariza o perfil hidráulico dos rios. `TerrainDiagnostics` informa tanto o maior degrau entre células quanto o maior ápice local, permitindo rejeitar seeds com agulhas, paredes ou lâminas de água antes da exportação.
 
@@ -101,11 +108,13 @@ A etapa final de geologia impõe limites reais de inclinação, remove ápices i
 ```text
 dotnet run --project samples/ProceduralWorld.Studio --urls http://127.0.0.1:5179
 dotnet run --project samples/ProceduralWorld.Demo -- 2026 Alpine
-dotnet run --project samples/ProceduralWorld.Backtest -- 129 artifacts/backtest
+dotnet run --project samples/ProceduralWorld.Backtest -- 65,129 artifacts/backtest
 dotnet run --project tests/ProceduralWorld.Tests
 ```
 
-Abra `http://127.0.0.1:5179` para usar o **Procedural World Studio**. A ferramenta permite escolher o perfil geológico, a seed, a resolução, a hidrologia, a altura das montanhas, a força do relevo, a erosão, a largura dos rios, a densidade das cavernas e a escala dos biomas. A pré-visualização possui camadas de relevo, biomas, água e declividade, diagnóstico automático e exportação da configuração em JSON.
+Abra `http://127.0.0.1:5179` para usar o **Procedural World Studio**. A ferramenta permite escolher o perfil geológico, a seed, a resolução, a hidrologia, a altura das montanhas, a força do relevo, a erosão, a largura dos rios, a densidade das cavernas e a escala dos biomas. A pré-visualização mantém os modos 2D ortográfico e 3D em miniatura, com rotação e zoom, além das camadas de relevo, biomas, água e declividade, diagnóstico automático e exportação da configuração em JSON.
+
+O backtest grava JSON, CSV, resumo Markdown e renderizações PPM de regressão para a seed de referência de cada perfil. Sem argumento de resolução, ele valida 65 × 65 e 129 × 129.
 
 O Studio é uma ferramenta de autoria separada dos jogos. Ele consome `ProceduralWorld.Core`, mas nenhuma interface do Studio precisa ser incorporada ao HUD do jogo final.
 

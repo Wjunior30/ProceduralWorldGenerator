@@ -6,6 +6,7 @@
   <title>Procedural World Studio</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="integration.css">
+  <link rel="stylesheet" href="studio3d.css">
 </head>
 <body>
   <header class="topbar">
@@ -55,6 +56,9 @@
           <span id="fingerprint">AGUARDANDO GERAÇÃO</span>
         </div>
         <div class="view-modes" role="group" aria-label="Visualização">
+          <button data-dimension="2d" class="active">2D</button>
+          <button data-dimension="3d">3D</button>
+          <i></i>
           <button data-view="terrain" class="active">RELEVO</button>
           <button data-view="biomes">BIOMAS</button>
           <button data-view="water">ÁGUA</button>
@@ -63,8 +67,9 @@
       </div>
       <div class="canvas-wrap">
         <canvas id="map" width="820" height="820"></canvas>
+        <canvas id="terrain3d" width="1000" height="820" class="hidden" aria-label="Miniatura 3D interativa do terreno"></canvas>
         <div id="loading" class="loading hidden"><span></span><b>GERANDO GEOLOGIA</b></div>
-        <div class="map-scale">N<br><span></span><small>VISÃO ORTOGRÁFICA</small></div>
+        <div class="map-scale">N<br><span></span><small id="view-label">VISÃO ORTOGRÁFICA</small></div>
         <div id="probe" class="probe">Mova o cursor sobre o mapa</div>
       </div>
     </section>
@@ -132,6 +137,8 @@
     <span>NÚCLEO PROCEDURALWORLD.CORE · GERAÇÃO DETERMINÍSTICA</span>
     <span id="status">PRONTO</span>
   </footer>
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
+  <script type="module" src="studio3d.js"></script>
   <script src="app.js"></script>
   <script src="integration.js"></script>
 </body>

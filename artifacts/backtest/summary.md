@@ -1,34 +1,41 @@
-# Procedural World backtest
+# Procedural World geological backtest
 
-Generated 70 worlds in 4,1s. Scores are diagnostic indicators, not artistic ratings.
+Generated 140 worlds in 5,8s. Scores validate topology and geological distributions; they are not artistic ratings.
 
-| Profile | Avg score | Worst | Avg relief | Avg river | Avg cliffs | Failures |
-|---|---:|---:|---:|---:|---:|---:|
-| Natural | 96,3 | 91,2 | 424,6 | 1,74% | 0,0% | 7 / 10 |
-| Alpine | 99,1 | 94,2 | 613,4 | 1,72% | 0,0% | 3 / 10 |
-| Canyonlands | 96,8 | 93,0 | 401,1 | 1,79% | 0,0% | 7 / 10 |
-| Karst | 96,5 | 91,5 | 414,9 | 1,76% | 0,0% | 7 / 10 |
-| RollingPlains | 100,0 | 100,0 | 246,9 | 1,75% | 0,0% | 0 / 10 |
-| Glacial | 97,5 | 91,5 | 496,0 | 1,64% | 0,0% | 5 / 10 |
-| Volcanic | 96,1 | 89,4 | 455,2 | 1,81% | 0,0% | 6 / 10 |
+| Profile | Resolution | Avg | Worst | Flat | Steep | Rivers | Reachable caves | Failures |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Natural | 65 | 100,0 | 100,0 | 20,3% | 14,7% | 1,97% | 100,0% | 0 / 10 |
+| Alpine | 65 | 100,0 | 100,0 | 18,0% | 31,7% | 1,87% | 100,0% | 0 / 10 |
+| Canyonlands | 65 | 100,0 | 100,0 | 19,9% | 26,9% | 1,77% | 100,0% | 0 / 10 |
+| Karst | 65 | 100,0 | 100,0 | 25,8% | 4,7% | 1,91% | 100,0% | 0 / 10 |
+| RollingPlains | 65 | 100,0 | 100,0 | 49,1% | 0,0% | 1,73% | 100,0% | 0 / 10 |
+| Glacial | 65 | 100,0 | 100,0 | 20,8% | 25,2% | 1,82% | 100,0% | 0 / 10 |
+| Volcanic | 65 | 100,0 | 100,0 | 27,3% | 1,7% | 1,91% | 100,0% | 0 / 10 |
+| Natural | 129 | 100,0 | 100,0 | 23,6% | 10,3% | 2,52% | 100,0% | 0 / 10 |
+| Alpine | 129 | 100,0 | 100,0 | 23,6% | 26,3% | 2,49% | 100,0% | 0 / 10 |
+| Canyonlands | 129 | 100,0 | 100,0 | 20,3% | 27,5% | 2,22% | 100,0% | 0 / 10 |
+| Karst | 129 | 100,0 | 100,0 | 28,7% | 2,9% | 2,53% | 100,0% | 0 / 10 |
+| RollingPlains | 129 | 100,0 | 100,0 | 53,2% | 0,0% | 2,49% | 100,0% | 0 / 10 |
+| Glacial | 129 | 100,0 | 100,0 | 27,5% | 21,1% | 2,36% | 100,0% | 0 / 10 |
+| Volcanic | 129 | 100,0 | 100,0 | 32,8% | 1,2% | 2,32% | 100,0% | 0 / 10 |
 
-**Best:** Alpine, seed `1`, score 100,0.
-**Worst:** Volcanic, seed `65537`, score 89,4.
-**3D render candidate:** Alpine, seed `1`, score 100,0, relief 726,9.
+**Best:** Alpine, seed `7`, score 100,0.
+**Worst:** Natural, seed `1`, score 100,0.
+**3D render candidate:** Alpine, seed `7`, score 100,0, relief 543,2.
 
-## Most frequent findings
+## Findings
 
-- Biome diversity or dominance: 35 cases
+- No structural failures.
 
 ## Worst cases
 
-- Volcanic `65537` — 89,4: um bioma domina 91,3% do mapa
-- Volcanic `7` — 90,5: um bioma domina 89,3% do mapa
-- Natural `173133397` — 91,2: um bioma domina 87,9% do mapa
-- Glacial `65537` — 91,5: um bioma domina 87,5% do mapa
-- Karst `173133397` — 91,5: um bioma domina 87,5% do mapa
-- Natural `65537` — 91,7: um bioma domina 87,1% do mapa
-- Karst `65537` — 92,9: um bioma domina 85,0% do mapa
-- Canyonlands `4096` — 93,0: um bioma domina 84,8% do mapa
-- Natural `7` — 93,0: um bioma domina 84,7% do mapa
-- Canyonlands `173133397` — 93,1: um bioma domina 84,5% do mapa
+- Natural `1` — 100,0: no structural findings
+- Natural `7` — 100,0: no structural findings
+- Natural `42` — 100,0: no structural findings
+- Natural `1337` — 100,0: no structural findings
+- Natural `2026` — 100,0: no structural findings
+- Natural `4096` — 100,0: no structural findings
+- Natural `9876` — 100,0: no structural findings
+- Natural `65537` — 100,0: no structural findings
+- Natural `99991` — 100,0: no structural findings
+- Natural `173133397` — 100,0: no structural findings

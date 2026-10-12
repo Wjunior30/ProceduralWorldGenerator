@@ -59,6 +59,7 @@ public sealed class TerrainGenerator
             }
         });
 
+        double massBeforeErosion = map.Height.Sum(x => (double)x);
         Erosion.ApplyThermal(map, _settings.ErosionIterations, _settings.ErosionStrength, _settings.TerrainStyle);
         float maximumGradient = _settings.TerrainStyle switch
         {
@@ -71,8 +72,11 @@ public sealed class TerrainGenerator
         float maximumApex = _settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f;
         Erosion.RelaxSlopes(map, maximumGradient, 30);
         Erosion.SuppressIsolatedApexes(map, maximumApex, 3);
+        map.ErosionMassDelta = map.Height.Sum(x => (double)x) - massBeforeErosion;
         Hydrology.Apply(map, _settings);
         CalculateSlopes(map);
+        CalculateCurvature(map, maximumGradient);
+        ClassifyLandforms(map);
         ClassifyClimate(map);
         return map;
     }
@@ -108,7 +112,7 @@ public sealed class TerrainGenerator
     {
         return style switch
         {
-            TerrainStyle.Alpine => basin > .58 ? GeologicalIdentity.AlluvialBasin : ridge > .62 ? GeologicalIdentity.GlacialRange : GeologicalIdentity.ErodedMassif,
+            TerrainStyle.Alpine => basin > .68 ? GeologicalIdentity.AlluvialBasin : ridge > .36 || region > .18 ? GeologicalIdentity.GlacialRange : GeologicalIdentity.ErodedMassif,
             TerrainStyle.Canyonlands => basin > .68 || Math.Abs(fault) < .08 ? GeologicalIdentity.AlluvialBasin : GeologicalIdentity.BadlandsMesa,
             TerrainStyle.Karst => basin > .60 ? GeologicalIdentity.AlluvialBasin : ridge > .68 ? GeologicalIdentity.ErodedMassif : GeologicalIdentity.KarstHighland,
             TerrainStyle.RollingPlains => ridge > .58 ? GeologicalIdentity.ErodedMassif : GeologicalIdentity.AlluvialBasin,
@@ -135,12 +139,58 @@ public sealed class TerrainGenerator
         }
     }
 
+    private static void CalculateCurvature(SurfaceMap map, float referenceGradient)
+    {
+        int n = map.Size;
+        for (int z = 0; z < n; z++) for (int x = 0; x < n; x++)
+        {
+            int i = map.Index(x, z);
+            int x0 = Math.Max(0, x - 1), x1 = Math.Min(n - 1, x + 1), z0 = Math.Max(0, z - 1), z1 = Math.Min(n - 1, z + 1);
+            float laplacian = map.HeightAt(x0, z) + map.HeightAt(x1, z) + map.HeightAt(x, z0) + map.HeightAt(x, z1) - 4 * map.Height[i];
+            map.Curvature[i] = laplacian / Math.Max(.001f, map.CellSize * map.CellSize);
+            map.SlopeSaturation[i] = Math.Min(1, map.Slope[i] / Math.Max(.001f, referenceGradient));
+        }
+    }
+
+    private void ClassifyLandforms(SurfaceMap map)
+    {
+        for (int i = 0; i < map.Height.Length; i++)
+        {
+            float slope = map.Slope[i], curve = map.Curvature[i], ridge = map.Ridge[i], strata = map.Strata[i];
+            bool wet = map.RiverChannel[i] || map.WaterDepth[i] > 0;
+            map.Landforms[i] = _settings.TerrainStyle switch
+            {
+                TerrainStyle.Alpine when curve < -.045f && ridge > .52f => LandformKind.Cirque,
+                TerrainStyle.Alpine when ridge > .62f => LandformKind.Ridge,
+                TerrainStyle.Canyonlands when strata > .62f && slope < .34f => LandformKind.Mesa,
+                TerrainStyle.Canyonlands when slope > .55f => LandformKind.Escarpment,
+                TerrainStyle.Karst when curve < -.035f && slope < .28f => LandformKind.Sinkhole,
+                TerrainStyle.Karst when !wet && curve < -.012f => LandformKind.DryValley,
+                TerrainStyle.RollingPlains when wet && slope < .16f => LandformKind.Floodplain,
+                TerrainStyle.RollingPlains when curve > .018f && slope < .28f => LandformKind.Terrace,
+                TerrainStyle.Glacial when curve > .035f && ridge > .42f => LandformKind.Moraine,
+                TerrainStyle.Glacial when curve < -.04f => LandformKind.Cirque,
+                TerrainStyle.Volcanic when ridge > .66f && strata > .55f => LandformKind.VolcanicCone,
+                TerrainStyle.Volcanic when curve < -.045f && ridge > .48f => LandformKind.Caldera,
+                TerrainStyle.Volcanic when strata > .58f => LandformKind.LavaField,
+                _ when wet && slope < .18f => LandformKind.Floodplain,
+                _ when ridge > .64f => LandformKind.Ridge,
+                _ when slope > .48f => LandformKind.Massif,
+                _ when curve < -.018f => LandformKind.Valley,
+                _ when slope < .08f => LandformKind.Plain,
+                _ => LandformKind.Hill
+            };
+        }
+    }
+
     private void ClassifyClimate(SurfaceMap map)
     {
         int n = map.Size;
         var rainShadow = new float[map.Height.Length];
-        bool alongX = (_seed & 1UL) == 0;
-        bool reverse = (_seed & 2UL) != 0;
+        double windLength = Math.Sqrt(_settings.WindX * _settings.WindX + _settings.WindZ * _settings.WindZ);
+        double windX = _settings.WindX / windLength, windZ = _settings.WindZ / windLength;
+        bool alongX = Math.Abs(windX) >= Math.Abs(windZ);
+        bool reverse = alongX ? windX < 0 : windZ < 0;
         for (int line = 0; line < n; line++)
         {
             float airborne = .62f;
@@ -166,6 +216,7 @@ public sealed class TerrainGenerator
             double px = x * map.CellSize, pz = z * map.CellSize;
             float altitude = map.Height[i], slope = map.Slope[i];
             float latitude = Math.Abs(z / (float)(n - 1) * 2 - 1);
+            float ecology = (float)_featureA.Sample(px, pz);
             float temperature = 29 - latitude * 22 - altitude * .016f + (float)_temperature.Sample(px, pz) * 5;
             float broadMoisture = .45f + (float)_moisture.Sample(px, pz) * .78f;
             float moisture = Clamp01(broadMoisture * .72f + rainShadow[i] * .28f + (map.WaterDepth[i] > 0 ? .22f : 0));
@@ -179,8 +230,9 @@ public sealed class TerrainGenerator
             else if (map.Geology[i] == GeologicalIdentity.BadlandsMesa && moisture < .56f) map.Biomes[i] = Biome.Desert;
             else if (temperature < 3) map.Biomes[i] = moisture > .46f ? Biome.Taiga : Biome.Tundra;
             else if (temperature > 24) map.Biomes[i] = moisture < .30f ? Biome.Desert : moisture > .76f ? Biome.Jungle : Biome.Savanna;
-            else if (moisture > .80f && slope < .10f) map.Biomes[i] = Biome.Swamp;
-            else if (moisture > .64f) map.Biomes[i] = Biome.Forest;
+            else if (moisture > .78f && slope < .10f) map.Biomes[i] = Biome.Swamp;
+            else if (moisture > .55f + ecology * .08f) map.Biomes[i] = Biome.Forest;
+            else if (moisture < .39f + ecology * .06f && slope < .34f) map.Biomes[i] = Biome.Savanna;
             else map.Biomes[i] = Biome.Grassland;
         }
         MarkBeaches(map);

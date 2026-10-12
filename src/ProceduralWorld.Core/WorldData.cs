@@ -3,6 +3,7 @@ namespace ProceduralWorld.Core;
 public enum Biome : byte { River, Lake, Beach, Desert, Savanna, Grassland, Forest, Jungle, Swamp, Taiga, Tundra, Rock, Snow }
 public enum WaterMode { None, RiversOnly, RiversAndLakes }
 public enum TerrainStyle { Natural, Alpine, Canyonlands, Karst, RollingPlains, Glacial, Volcanic }
+public enum LandformKind : byte { Plain, Hill, Massif, Valley, Basin, Ridge, Cirque, Mesa, Escarpment, Sinkhole, DryValley, Floodplain, Terrace, Moraine, VolcanicCone, Caldera, LavaField }
 
 public sealed class WorldSettings
 {
@@ -23,11 +24,15 @@ public sealed class WorldSettings
     public float RiverWidthMultiplier { get; set; } = 1;
     public float CaveDensity { get; set; } = 1;
     public float BiomeRegionScale { get; set; } = 1;
+    public float WindX { get; set; } = 1;
+    public float WindZ { get; set; } = 0;
     public void Validate()
     {
         if (GenerationVersion < 1 || Size < 17) throw new ArgumentOutOfRangeException(nameof(Size));
         if (CellSize <= 0 || MountainHeight < 0 || CaveDepthCells < 8 || ReliefStrength < 0 || RiverWidthMultiplier <= 0 || CaveDensity <= 0 || BiomeRegionScale <= 0)
             throw new ArgumentOutOfRangeException("World dimensions and multipliers must be positive.");
+        if (!float.IsFinite(WindX) || !float.IsFinite(WindZ) || Math.Abs(WindX) + Math.Abs(WindZ) < .001f)
+            throw new ArgumentOutOfRangeException(nameof(WindX), "Wind must be a finite, non-zero 2D vector.");
         if (ErosionIterations < 0 || ErosionIterations > 200) throw new ArgumentOutOfRangeException(nameof(ErosionIterations));
     }
 }
@@ -39,6 +44,7 @@ public sealed class SurfaceMap
         Size = size; CellSize = cellSize; int count = checked(size * size);
         Height = new float[count]; Slope = new float[count]; Temperature = new float[count]; Moisture = new float[count];
         Flow = new float[count]; WaterDepth = new float[count]; Sediment = new float[count]; Ridge = new float[count]; Continentalness = new float[count]; RockHardness = new float[count]; Strata = new float[count];
+        Curvature = new float[count]; SlopeSaturation = new float[count]; BasinId = new int[count]; StreamOrder = new byte[count]; CaveOpening = new bool[count]; Landforms = new LandformKind[count];
         DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
     }
     public int Size { get; }
@@ -54,6 +60,13 @@ public sealed class SurfaceMap
     public float[] Continentalness { get; }
     public float[] RockHardness { get; }
     public float[] Strata { get; }
+    public float[] Curvature { get; }
+    public float[] SlopeSaturation { get; }
+    public int[] BasinId { get; }
+    public byte[] StreamOrder { get; }
+    public bool[] CaveOpening { get; }
+    public LandformKind[] Landforms { get; }
+    public double ErosionMassDelta { get; internal set; }
     public int[] DrainageReceiver { get; }
     public bool[] RiverChannel { get; }
     public Biome[] Biomes { get; }
@@ -86,6 +99,31 @@ public sealed class CaveVolume
     public bool IsSolid(int x, int y, int z) => _solid[(y * Depth + z) * Width + x];
     public void SetSolid(int x, int y, int z, bool solid) => _solid[(y * Depth + z) * Width + x] = solid;
     public long AirCellCount => _solid.LongCount(x => !x);
+    public int[] ComputeComponents()
+    {
+        var components = new int[_solid.Length];
+        int nextComponent = 0;
+        int[] dx = { 1, -1, 0, 0, 0, 0 }, dy = { 0, 0, 1, -1, 0, 0 }, dz = { 0, 0, 0, 0, 1, -1 };
+        var queue = new Queue<int>();
+        for (int start = 0; start < _solid.Length; start++)
+        {
+            if (_solid[start] || components[start] != 0) continue;
+            int label = ++nextComponent; components[start] = label; queue.Enqueue(start);
+            while (queue.Count > 0)
+            {
+                int id = queue.Dequeue(), x = id % Width, t = id / Width, z = t % Depth, y = t / Depth;
+                for (int k = 0; k < 6; k++)
+                {
+                    int nx = x + dx[k], ny = y + dy[k], nz = z + dz[k];
+                    if ((uint)nx >= (uint)Width || (uint)ny >= (uint)Height || (uint)nz >= (uint)Depth) continue;
+                    int candidate = (ny * Depth + nz) * Width + nx;
+                    if (_solid[candidate] || components[candidate] != 0) continue;
+                    components[candidate] = label; queue.Enqueue(candidate);
+                }
+            }
+        }
+        return components;
+    }
 }
 
 public enum LabyrinthCell : byte { Wall, Corridor, Room, Arena, Niche }

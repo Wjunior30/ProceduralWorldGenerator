@@ -5,35 +5,38 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ProceduralWorld.Core;
 
-int size = args.Length > 0 && int.TryParse(args[0], out int requestedSize) ? requestedSize : 129;
+int[] sizes = args.Length > 0
+    ? args[0].Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).Distinct().OrderBy(x => x).ToArray()
+    : new[] { 65, 129 };
 string outputRoot = args.Length > 1 ? Path.GetFullPath(args[1]) : Path.GetFullPath(Path.Combine("artifacts", "backtest"));
 long[] seeds = { 1, 7, 42, 1337, 2026, 4096, 9876, 65537, 99991, 173133397 };
 TerrainStyle[] styles = Enum.GetValues<TerrainStyle>();
-var cases = styles.SelectMany(style => seeds.Select(seed => (style, seed))).ToArray();
+var cases = sizes.SelectMany(size => styles.SelectMany(style => seeds.Select(seed => (style, seed, size)))).ToArray();
 var results = new ConcurrentBag<BacktestResult>();
 
-Console.WriteLine($"Backtest: {cases.Length} worlds ({styles.Length} profiles x {seeds.Length} seeds), resolution {size}x{size}");
+Console.WriteLine($"Backtest: {cases.Length} worlds ({styles.Length} profiles x {seeds.Length} seeds x {sizes.Length} resolutions)");
 var started = DateTimeOffset.UtcNow;
 Parallel.ForEach(cases, new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 2, 6) }, item =>
 {
-    WorldSettings settings = TerrainPresetCatalog.Create(item.style, size);
+    WorldSettings settings = TerrainPresetCatalog.Create(item.style, item.size);
     GeneratedWorld world = new WorldGenerator(item.seed, settings).Generate();
     BacktestResult result = Analyze(item.style, item.seed, settings, world);
     results.Add(result);
     lock (Console.Out)
-        Console.WriteLine($"  {item.style,-15} seed {item.seed,10}: {result.Score,5:F1}/100 | relief {result.HeightRange,7:F1} | rivers {result.RiverCoverage,6:P2} | issues {result.Issues.Count}");
+        Console.WriteLine($"  {item.style,-15} {item.size,3}² seed {item.seed,10}: {result.Score,5:F1}/100 | relief {result.HeightRange,7:F1} | rivers {result.RiverCoverage,6:P2} | issues {result.Issues.Count}");
 });
 
-List<BacktestResult> ordered = results.OrderBy(x => x.Style).ThenBy(x => x.Seed).ToList();
+List<BacktestResult> ordered = results.OrderBy(x => x.Resolution).ThenBy(x => x.Style).ThenBy(x => x.Seed).ToList();
 BacktestResult best = ordered.OrderByDescending(x => x.Score).ThenByDescending(x => x.HeightRange).First();
 BacktestResult worst = ordered.OrderBy(x => x.Score).ThenByDescending(x => x.Issues.Count).First();
 BacktestResult render = ordered.Where(x => x.BrokenRiverCells == 0 && x.UphillRiverCells == 0 && x.InaccessibleEntrances == 0 && x.ReachableCaveRatio >= .9)
     .OrderByDescending(x => x.Score).ThenByDescending(x => x.HeightRange).FirstOrDefault() ?? best;
 Directory.CreateDirectory(outputRoot);
 var options = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
-File.WriteAllText(Path.Combine(outputRoot, "backtest.json"), JsonSerializer.Serialize(new BacktestSuite(started, DateTimeOffset.UtcNow, size, seeds, ordered, best, worst, render), options), new UTF8Encoding(false));
+File.WriteAllText(Path.Combine(outputRoot, "backtest.json"), JsonSerializer.Serialize(new BacktestSuite(started, DateTimeOffset.UtcNow, sizes, seeds, ordered, best, worst, render), options), new UTF8Encoding(false));
 WriteCsv(Path.Combine(outputRoot, "backtest.csv"), ordered);
 WriteSummary(Path.Combine(outputRoot, "summary.md"), ordered, best, worst, render, started);
+WriteRegressionImages(outputRoot, styles, sizes.Max());
 Console.WriteLine();
 Console.WriteLine($"Best: {best.Style} / {best.Seed} ({best.Score:F1})");
 Console.WriteLine($"Worst: {worst.Style} / {worst.Seed} ({worst.Score:F1})");
@@ -79,8 +82,11 @@ static BacktestResult Analyze(TerrainStyle style, long seed, WorldSettings setti
     Penalize(waterCoverage > .24, Math.Min(10, (waterCoverage - .24) * 35), $"água cobre área excessiva ({waterCoverage:P1})");
     Penalize(report.BiomeComponents > map.Height.Length * .055, Math.Min(12, (report.BiomeComponents / (double)map.Height.Length - .055) * 80), $"biomas fragmentados em {report.BiomeComponents} regiões");
     Penalize(report.DrainageOutlets < 2 || report.DrainageOutlets > 12, 8, $"quantidade de saídas fluviais fora do esperado ({report.DrainageOutlets})");
+    Penalize(report.ErosionMassRelativeError >= 1e-5, 20, $"erosão não conservou massa ({report.ErosionMassRelativeError:E2})");
+    Penalize(report.BasinCount != report.DrainageOutlets, 10, $"{report.BasinCount} bacias para {report.DrainageOutlets} saídas");
+    Penalize(report.CaveComponents != 1, 20, $"{report.CaveComponents} componentes subterrâneos desconectados");
 
-    return new BacktestResult(style, seed, world.Fingerprint().ToString("X16"), Math.Max(0, score),
+    return new BacktestResult(style, seed, settings.Size, world.Fingerprint().ToString("X16"), Math.Max(0, score),
         map.Height.Min(), map.Height.Max(), map.Height.Max() - map.Height.Min(), stdDev,
         report.MaximumNeighbourRise, report.MaximumLocalApex, report.FlatAreaRatio, report.SteepAreaRatio, report.RepeatedSteepGradeRatio,
         report.BiomeCount, report.DominantBiomeRatio, report.DominantGeologyRatio, report.BiomeComponents,
@@ -92,9 +98,9 @@ static BacktestResult Analyze(TerrainStyle style, long seed, WorldSettings setti
 
 static void WriteCsv(string path, IReadOnlyList<BacktestResult> results)
 {
-    var csv = new StringBuilder("style,seed,fingerprint,score,min,max,range,stddev,maxRise,maxApex,flatRatio,steepRatio,repeatedGrade,biomes,dominantBiome,dominantGeology,components,riverCoverage,waterCoverage,riverCells,brokenRivers,uphillDrainage,uphillRivers,outlets,caveEntrances,inaccessibleCaves,reachableCaves,caveAir,labyrinth,issues\n");
+    var csv = new StringBuilder("style,seed,resolution,fingerprint,score,min,max,range,stddev,maxRise,maxApex,flatRatio,steepRatio,repeatedGrade,biomes,dominantBiome,dominantGeology,components,riverCoverage,waterCoverage,riverCells,brokenRivers,uphillDrainage,uphillRivers,outlets,caveEntrances,inaccessibleCaves,reachableCaves,caveAir,labyrinth,issues\n");
     foreach (BacktestResult x in results)
-        csv.AppendLine(string.Join(',', x.Style, x.Seed, x.Fingerprint, F(x.Score), F(x.MinimumHeight), F(x.MaximumHeight), F(x.HeightRange), F(x.HeightStdDev), F(x.MaximumNeighbourRise), F(x.MaximumLocalApex), F(x.FlatAreaRatio), F(x.SteepAreaRatio), F(x.RepeatedSteepGradeRatio), x.BiomeCount, F(x.DominantBiomeRatio), F(x.DominantGeologyRatio), x.BiomeComponents, F(x.RiverCoverage), F(x.WaterCoverage), x.RiverCells, x.BrokenRiverCells, x.UphillDrainageCells, x.UphillRiverCells, x.DrainageOutlets, x.CaveEntrances, x.InaccessibleEntrances, F(x.ReachableCaveRatio), x.CaveAirCells, x.LabyrinthWalkableCells, Quote(string.Join("; ", x.Issues))));
+        csv.AppendLine(string.Join(',', x.Style, x.Seed, x.Resolution, x.Fingerprint, F(x.Score), F(x.MinimumHeight), F(x.MaximumHeight), F(x.HeightRange), F(x.HeightStdDev), F(x.MaximumNeighbourRise), F(x.MaximumLocalApex), F(x.FlatAreaRatio), F(x.SteepAreaRatio), F(x.RepeatedSteepGradeRatio), x.BiomeCount, F(x.DominantBiomeRatio), F(x.DominantGeologyRatio), x.BiomeComponents, F(x.RiverCoverage), F(x.WaterCoverage), x.RiverCells, x.BrokenRiverCells, x.UphillDrainageCells, x.UphillRiverCells, x.DrainageOutlets, x.CaveEntrances, x.InaccessibleEntrances, F(x.ReachableCaveRatio), x.CaveAirCells, x.LabyrinthWalkableCells, Quote(string.Join("; ", x.Issues))));
     File.WriteAllText(path, csv.ToString(), new UTF8Encoding(false));
     static string F(double value) => value.ToString("0.#####", CultureInfo.InvariantCulture);
     static string Quote(string value) => '"' + value.Replace("\"", "\"\"") + '"';
@@ -105,10 +111,10 @@ static void WriteSummary(string path, IReadOnlyList<BacktestResult> results, Bac
     var md = new StringBuilder();
     md.AppendLine("# Procedural World geological backtest").AppendLine();
     md.AppendLine($"Generated {results.Count} worlds in {(DateTimeOffset.UtcNow - started).TotalSeconds:F1}s. Scores validate topology and geological distributions; they are not artistic ratings.").AppendLine();
-    md.AppendLine("| Profile | Avg | Worst | Flat | Steep | Rivers | Reachable caves | Failures |");
-    md.AppendLine("|---|---:|---:|---:|---:|---:|---:|---:|");
-    foreach (IGrouping<TerrainStyle, BacktestResult> group in results.GroupBy(x => x.Style).OrderBy(x => x.Key))
-        md.AppendLine($"| {group.Key} | {group.Average(x => x.Score):F1} | {group.Min(x => x.Score):F1} | {group.Average(x => x.FlatAreaRatio):P1} | {group.Average(x => x.SteepAreaRatio):P1} | {group.Average(x => x.RiverCoverage):P2} | {group.Average(x => x.ReachableCaveRatio):P1} | {group.Count(x => x.Issues.Count > 0)} / {group.Count()} |");
+    md.AppendLine("| Profile | Resolution | Avg | Worst | Flat | Steep | Rivers | Reachable caves | Failures |");
+    md.AppendLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|");
+    foreach (var group in results.GroupBy(x => (x.Style, x.Resolution)).OrderBy(x => x.Key.Resolution).ThenBy(x => x.Key.Style))
+        md.AppendLine($"| {group.Key.Style} | {group.Key.Resolution} | {group.Average(x => x.Score):F1} | {group.Min(x => x.Score):F1} | {group.Average(x => x.FlatAreaRatio):P1} | {group.Average(x => x.SteepAreaRatio):P1} | {group.Average(x => x.RiverCoverage):P2} | {group.Average(x => x.ReachableCaveRatio):P1} | {group.Count(x => x.Issues.Count > 0)} / {group.Count()} |");
     md.AppendLine().AppendLine($"**Best:** {best.Style}, seed `{best.Seed}`, score {best.Score:F1}.");
     md.AppendLine($"**Worst:** {worst.Style}, seed `{worst.Seed}`, score {worst.Score:F1}.");
     md.AppendLine($"**3D render candidate:** {render.Style}, seed `{render.Seed}`, score {render.Score:F1}, relief {render.HeightRange:F1}.").AppendLine();
@@ -122,8 +128,34 @@ static void WriteSummary(string path, IReadOnlyList<BacktestResult> results, Bac
     File.WriteAllText(path, md.ToString(), new UTF8Encoding(false));
 }
 
-sealed record BacktestSuite(DateTimeOffset StartedAt, DateTimeOffset CompletedAt, int Resolution, long[] Seeds, IReadOnlyList<BacktestResult> Results, BacktestResult Best, BacktestResult Worst, BacktestResult RenderCandidate);
-sealed record BacktestResult(TerrainStyle Style, long Seed, string Fingerprint, double Score,
+static void WriteRegressionImages(string outputRoot, IReadOnlyList<TerrainStyle> styles, int size)
+{
+    string directory = Path.Combine(outputRoot, "regression");
+    Directory.CreateDirectory(directory);
+    foreach (TerrainStyle style in styles)
+    {
+        GeneratedWorld world = new WorldGenerator(2026, TerrainPresetCatalog.Create(style, size)).Generate();
+        SurfaceMap map = world.Surface;
+        float minimum = map.Height.Min(), range = Math.Max(.001f, map.Height.Max() - minimum);
+        var ppm = new StringBuilder($"P3\n{map.Size} {map.Size}\n255\n");
+        for (int z = 0; z < map.Size; z++)
+        {
+            for (int x = 0; x < map.Size; x++)
+            {
+                int i = map.Index(x, z); float normalized = (map.Height[i] - minimum) / range;
+                int r = (int)(35 + normalized * 190), g = (int)(55 + normalized * 175), b = (int)(45 + normalized * 145);
+                if (map.WaterDepth[i] > 0) { r = 25; g = 95; b = 190; }
+                else if (map.CaveOpening[i]) { r = 18; g = 18; b = 18; }
+                ppm.Append(r).Append(' ').Append(g).Append(' ').Append(b).Append(' ');
+            }
+            ppm.AppendLine();
+        }
+        File.WriteAllText(Path.Combine(directory, $"{style.ToString().ToLowerInvariant()}-2026-{size}.ppm"), ppm.ToString(), new UTF8Encoding(false));
+    }
+}
+
+sealed record BacktestSuite(DateTimeOffset StartedAt, DateTimeOffset CompletedAt, int[] Resolutions, long[] Seeds, IReadOnlyList<BacktestResult> Results, BacktestResult Best, BacktestResult Worst, BacktestResult RenderCandidate);
+sealed record BacktestResult(TerrainStyle Style, long Seed, int Resolution, string Fingerprint, double Score,
     double MinimumHeight, double MaximumHeight, double HeightRange, double HeightStdDev,
     double MaximumNeighbourRise, double MaximumLocalApex, double FlatAreaRatio, double SteepAreaRatio, double RepeatedSteepGradeRatio,
     int BiomeCount, double DominantBiomeRatio, double DominantGeologyRatio, int BiomeComponents,

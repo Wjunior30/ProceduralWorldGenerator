@@ -69,6 +69,12 @@ app.MapPost("/api/generate", (GenerateRequest request) =>
         waterDepth = map.WaterDepth,
         flow = map.Flow,
         ridge = map.Ridge,
+        curvature = map.Curvature,
+        slopeSaturation = map.SlopeSaturation,
+        basins = map.BasinId,
+        streamOrder = map.StreamOrder,
+        caveOpening = map.CaveOpening,
+        landforms = map.Landforms.Select(x => (int)x).ToArray(),
         biomes = map.Biomes.Select(x => (int)x).ToArray(),
         report,
         caveEntrances = world.Caves.Entrances.Select(e => new { e.X, e.Z, e.SurfaceY, e.CaveY, e.FacingX, e.FacingZ, e.Radius })
