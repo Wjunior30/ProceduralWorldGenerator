@@ -17,20 +17,24 @@ internal static class Hydrology
         Array.Clear(map.RiverChannel, 0, map.RiverChannel.Length);
         Array.Fill(map.DrainageReceiver, -1);
         if (settings.WaterMode == WaterMode.None) return;
+        double targetMass = map.Height.Sum(x => (double)x);
+        bool preserveLakes = settings.WaterMode == WaterMode.RiversAndLakes;
 
         DrainageSolution first = Solve(map);
         MarkChannels(map, settings);
         CarveChannels(map, settings, first);
 
         DrainageSolution second = Solve(map);
-        FillClosedDepressions(map, second);
-        Erosion.RelaxSlopes(map, .90f, 24);
+        if (!preserveLakes) FillClosedDepressions(map, second);
+        Erosion.RelaxSlopes(map, .90f, 32);
         DrainageSolution settled = Solve(map);
-        FillClosedDepressions(map, settled);
+        if (!preserveLakes) FillClosedDepressions(map, settled);
+        Erosion.LimitExtremeSteps(map, map.CellSize * 1.80f, 24);
         DrainageSolution final = Solve(map);
         MarkChannels(map, settings);
         AssignWater(map, settings, final);
         ClassifyBasinsAndStreams(map, final);
+        RebalanceHeightMass(map, targetMass);
     }
 
     private static void ClassifyBasinsAndStreams(SurfaceMap map, DrainageSolution solution)
@@ -183,6 +187,14 @@ internal static class Hydrology
             map.Height[i] = solution.Filled[i];
             map.Sediment[i] += deposit;
         }
+    }
+
+    private static void RebalanceHeightMass(SurfaceMap map, double targetMass)
+    {
+        double currentMass = map.Height.Sum(x => (double)x);
+        float correction = (float)((targetMass - currentMass) / Math.Max(1, map.Height.Length));
+        if (Math.Abs(correction) < 1e-7f) return;
+        for (int i = 0; i < map.Height.Length; i++) map.Height[i] += correction;
     }
 
     private static void AssignWater(SurfaceMap map, WorldSettings settings, DrainageSolution solution)

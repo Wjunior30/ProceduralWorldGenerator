@@ -3,8 +3,10 @@ using ProceduralWorld.Studio;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<EngineIntegrationService>();
+builder.Services.AddResponseCompression();
 var app = builder.Build();
 
+app.UseResponseCompression();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
@@ -52,13 +54,14 @@ app.MapPost("/api/generate", (GenerateRequest request) =>
         "riversandlakes" => WaterMode.RiversAndLakes,
         _ => WaterMode.RiversOnly
     };
+    BiomeSelection.Configure(settings, request.EnabledBiomes);
 
     GeneratedWorld world = new WorldGenerator(request.Seed, settings).Generate();
     TerrainReport report = TerrainDiagnostics.Analyze(world);
     SurfaceMap map = world.Surface;
     return Results.Ok(new
     {
-        world.Seed,
+        seed = world.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture),
         style = style.ToString(),
         world.GenerationVersion,
         fingerprint = world.Fingerprint().ToString("X16"),
@@ -67,14 +70,7 @@ app.MapPost("/api/generate", (GenerateRequest request) =>
         height = map.Height,
         slope = map.Slope,
         waterDepth = map.WaterDepth,
-        flow = map.Flow,
-        ridge = map.Ridge,
-        curvature = map.Curvature,
-        slopeSaturation = map.SlopeSaturation,
-        basins = map.BasinId,
-        streamOrder = map.StreamOrder,
         caveOpening = map.CaveOpening,
-        landforms = map.Landforms.Select(x => (int)x).ToArray(),
         biomes = map.Biomes.Select(x => (int)x).ToArray(),
         report,
         caveEntrances = world.Caves.Entrances.Select(e => new { e.X, e.Z, e.SurfaceY, e.CaveY, e.FacingX, e.FacingZ, e.Radius })

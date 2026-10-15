@@ -64,17 +64,17 @@ public sealed class TerrainGenerator
         Erosion.ApplyThermal(map, _settings.ErosionIterations, _settings.ErosionStrength, _settings.TerrainStyle);
         float maximumGradient = _settings.TerrainStyle switch
         {
-            TerrainStyle.Alpine => 1.12f,
+            TerrainStyle.Alpine => .96f,
             TerrainStyle.Canyonlands => .96f,
             TerrainStyle.RollingPlains => .46f,
             TerrainStyle.Glacial => .82f,
             _ => .78f
         };
         float maximumApex = _settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f;
-        Erosion.RelaxSlopes(map, maximumGradient, 90);
-        Erosion.SuppressIsolatedApexes(map, maximumApex, 6);
-        map.ErosionMassDelta = map.Height.Sum(x => (double)x) - massBeforeErosion;
+        Erosion.RelaxSlopes(map, maximumGradient, 140);
+        Erosion.SuppressIsolatedApexes(map, maximumApex, 12);
         Hydrology.Apply(map, _settings);
+        map.ErosionMassDelta = map.Height.Sum(x => (double)x) - massBeforeErosion;
         CalculateSlopes(map);
         CalculateCurvature(map, maximumGradient);
         ClassifyLandforms(map);
@@ -92,7 +92,7 @@ public sealed class TerrainGenerator
         {
             TerrainStyle.Alpine => Math.Exp(-Math.Pow((nz - center) / .17, 2)) * mountain * (.29 + .08 * Math.Cos(nx * 8 + phase)),
             TerrainStyle.Glacial => (Math.Exp(-Math.Pow((nz - center - .20) / .15, 2)) + Math.Exp(-Math.Pow((nz - center + .20) / .15, 2))) * mountain * .17
-                - Math.Exp(-Math.Pow((nz - center) / .18, 2)) * mountain * .06,
+                - Math.Exp(-Math.Pow((nz - center) / .15, 4)) * mountain * .10,
             TerrainStyle.Volcanic => VolcanicSignature(nx, nz, phase, mountain),
             TerrainStyle.Natural => Math.Exp(-Math.Pow((nz - center) / .18, 2)) * mountain * .09,
             _ => 0
@@ -117,9 +117,9 @@ public sealed class TerrainGenerator
         return style switch
         {
             TerrainStyle.Alpine => baseLand + Math.Pow(ridge, 1.42) * mountainHeight * 1.02 - faultBand * mountainHeight * .16 - basin * 22 + fine,
-            TerrainStyle.Canyonlands => baseLand + GeologicalShapes.Mesa(Smooth(-.52, .72, plateauNoise), Smooth(-.8, .8, featureB)) * mountainHeight * .48 - faultBand * mountainHeight * .20 - basin * 28 + fine * .55,
+            TerrainStyle.Canyonlands => baseLand + GeologicalShapes.Mesa(Smooth(-.52, .72, plateauNoise), Smooth(-.8, .8, featureB)) * mountainHeight * .50 - faultBand * mountainHeight * .23 - basin * 30 + fine * .55,
             TerrainStyle.Karst => baseLand + Math.Pow(ridge, 1.18) * mountainHeight * .52 - Math.Pow(Smooth(.42, .86, featureA), 2) * mountainHeight * .12 - basin * 42 + fine * .72,
-            TerrainStyle.RollingPlains => baseLand * .72 + _settings.BaseElevation * .28 + region * 24 + Math.Pow(ridge, 1.8) * mountainHeight * .14 - basin * 18 + fine * .42,
+            TerrainStyle.RollingPlains => baseLand * .72 + _settings.BaseElevation * .28 + region * 20 + Math.Pow(ridge, 1.8) * mountainHeight * .11 - basin * 14 + fine * .34,
             TerrainStyle.Glacial => baseLand + Math.Pow(ridge, 1.34) * mountainHeight * .84 - faultBand * mountainHeight * .25 - basin * 34 + fine * .58,
             TerrainStyle.Volcanic => VolcanicHeight(baseLand, mountainHeight, ridge, plateauNoise, basin, detail, featureA, featureB),
             _ => baseLand + (ridge * .30 + Math.Pow(ridge, 1.55) * .42) * mountainHeight * _preset.MountainScale - basin * 38 * _preset.ValleyStrength + fine
@@ -187,26 +187,26 @@ public sealed class TerrainGenerator
             bool wet = map.RiverChannel[i] || map.WaterDepth[i] > 0;
             map.Landforms[i] = _settings.TerrainStyle switch
             {
-                TerrainStyle.Alpine when curve < -.018f && ridge > .34f => LandformKind.Cirque,
+                TerrainStyle.Alpine when curve > .006f && ridge > .28f => LandformKind.Cirque,
                 TerrainStyle.Alpine when ridge > .42f || slope > .38f => LandformKind.Ridge,
                 TerrainStyle.Canyonlands when strata > .62f && slope < .34f => LandformKind.Mesa,
-                TerrainStyle.Canyonlands when slope > .55f => LandformKind.Escarpment,
-                TerrainStyle.Karst when curve < -.035f && slope < .28f => LandformKind.Sinkhole,
-                TerrainStyle.Karst when !wet && curve < -.012f => LandformKind.DryValley,
+                TerrainStyle.Canyonlands when slope > .52f => LandformKind.Escarpment,
+                TerrainStyle.Karst when curve > .008f && slope < .32f => LandformKind.Sinkhole,
+                TerrainStyle.Karst when !wet && curve > .003f => LandformKind.DryValley,
                 TerrainStyle.RollingPlains when wet && slope < .22f => LandformKind.Floodplain,
                 TerrainStyle.RollingPlains when slope < .10f => LandformKind.Plain,
-                TerrainStyle.RollingPlains when curve > .006f && slope < .32f => LandformKind.Terrace,
-                TerrainStyle.Glacial when curve > .012f && (ridge > .28f || slope < .18f) => LandformKind.Moraine,
-                TerrainStyle.Glacial when curve < -.014f => LandformKind.Cirque,
+                TerrainStyle.RollingPlains when curve < -.003f && slope < .32f => LandformKind.Terrace,
+                TerrainStyle.Glacial when curve < -.003f && (ridge > .28f || slope < .18f) => LandformKind.Moraine,
+                TerrainStyle.Glacial when curve > .005f => LandformKind.Cirque,
                 TerrainStyle.Glacial when ridge > .40f => LandformKind.Ridge,
                 TerrainStyle.Volcanic when ridge > .48f && strata > .42f => LandformKind.VolcanicCone,
-                TerrainStyle.Volcanic when curve < -.014f && ridge > .30f => LandformKind.Caldera,
+                TerrainStyle.Volcanic when curve > .006f && ridge > .30f => LandformKind.Caldera,
                 TerrainStyle.Volcanic when strata > .42f => LandformKind.LavaField,
                 _ when wet && slope < .18f => LandformKind.Floodplain,
                 _ when ridge > .64f => LandformKind.Ridge,
                 _ when slope > .48f => LandformKind.Massif,
-                _ when curve < -.010f => LandformKind.Valley,
-                _ when curve > .014f && slope < .20f => LandformKind.Basin,
+                _ when curve > .008f && slope < .24f => LandformKind.Basin,
+                _ when curve > .0025f => LandformKind.Valley,
                 _ when slope < .11f => LandformKind.Plain,
                 _ => LandformKind.Hill
             };
@@ -266,7 +266,124 @@ public sealed class TerrainGenerator
             else map.Biomes[i] = Biome.Grassland;
         }
         MarkBeaches(map);
+        BalanceDominantBiome(map);
+        ApplyBiomeSelection(map);
     }
+
+    private void ApplyBiomeSelection(SurfaceMap map)
+    {
+        var enabled = _settings.EnabledBiomes.ToHashSet();
+        for (int i = 0; i < map.Biomes.Length; i++)
+        {
+            if (enabled.Contains(map.Biomes[i])) continue;
+            bool wet = map.WaterDepth[i] > 0;
+            Biome[] compatible = enabled.Where(x => wet ? x is Biome.River or Biome.Lake : x is not Biome.River and not Biome.Lake).ToArray();
+            if (compatible.Length == 0) compatible = enabled.ToArray();
+            map.Biomes[i] = compatible.OrderBy(x => BiomeCost(map, i, x)).ThenBy(x => x).First();
+        }
+
+        bool[] reserved = new bool[map.Biomes.Length];
+        foreach (Biome biome in enabled.Where(x => x is not Biome.River and not Biome.Lake).OrderBy(x => x))
+        {
+            if (map.Biomes.Contains(biome)) continue;
+            int[] candidates = Enumerable.Range(0, map.Biomes.Length)
+                .Where(i => map.WaterDepth[i] <= 0 && !reserved[i])
+                .OrderBy(i => BiomeCost(map, i, biome))
+                .ThenBy(i => i)
+                .Take(1)
+                .ToArray();
+            if (candidates.Length == 0) continue;
+            int center = candidates[0];
+            int cx = center % map.Size, cz = center / map.Size;
+            int radius = Math.Max(1, map.Size / 64);
+            for (int dz = -radius; dz <= radius; dz++) for (int dx = -radius; dx <= radius; dx++)
+            {
+                int x = cx + dx, z = cz + dz;
+                if (x < 0 || z < 0 || x >= map.Size || z >= map.Size || dx * dx + dz * dz > radius * radius) continue;
+                int i = map.Index(x, z);
+                if (map.WaterDepth[i] > 0 || reserved[i]) continue;
+                map.Biomes[i] = biome;
+                reserved[i] = true;
+            }
+        }
+    }
+
+    private static float BiomeCost(SurfaceMap map, int i, Biome biome)
+    {
+        float temperature = map.Temperature[i], moisture = map.Moisture[i], slope = map.Slope[i];
+        return biome switch
+        {
+            Biome.River => map.RiverChannel[i] ? 0 : 10,
+            Biome.Lake => map.WaterDepth[i] > 0 && !map.RiverChannel[i] ? 0 : 10,
+            Biome.Beach => (NearWater(map, i) ? 0 : 2.5f) + slope * 3,
+            Biome.Desert => moisture * 2.2f + Math.Abs(temperature - 30) * .025f + slope * .25f,
+            Biome.Savanna => Math.Abs(moisture - .36f) * 2 + Math.Abs(temperature - 24) * .025f + slope * .2f,
+            Biome.Grassland => Math.Abs(moisture - .48f) * 1.6f + Math.Abs(temperature - 16) * .018f + slope * .35f,
+            Biome.Forest => Math.Abs(moisture - .66f) * 1.8f + Math.Abs(temperature - 15) * .02f + slope * .18f,
+            Biome.Jungle => Math.Abs(moisture - .88f) * 2.2f + Math.Abs(temperature - 28) * .035f + slope * .3f,
+            Biome.Swamp => Math.Abs(moisture - .86f) * 2.1f + Math.Abs(temperature - 19) * .02f + slope * 3.2f,
+            Biome.Taiga => Math.Abs(moisture - .58f) * 1.8f + Math.Abs(temperature - 1) * .04f + slope * .2f,
+            Biome.Tundra => Math.Abs(moisture - .34f) * 1.5f + Math.Abs(temperature + 2) * .045f + slope * .25f,
+            Biome.Rock => Math.Abs(slope - .85f) * 1.5f - map.Ridge[i] * .3f,
+            Biome.Snow => Math.Abs(temperature + 9) * .055f - map.Height[i] * .0008f,
+            _ => 10
+        };
+    }
+
+    private static bool NearWater(SurfaceMap map, int i)
+    {
+        int x = i % map.Size, z = i / map.Size;
+        for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++)
+        {
+            int nx = x + dx, nz = z + dz;
+            if (nx >= 0 && nz >= 0 && nx < map.Size && nz < map.Size && map.WaterDepth[map.Index(nx, nz)] > 0) return true;
+        }
+        return false;
+    }
+
+    private static void BalanceDominantBiome(SurfaceMap map)
+    {
+        int limit = (int)Math.Floor(map.Biomes.Length * .70);
+        for (int pass = 0; pass < 3; pass++)
+        {
+            var dominant = map.Biomes.GroupBy(x => x).OrderByDescending(x => x.Count()).First();
+            if (dominant.Count() <= limit || dominant.Key is Biome.River or Biome.Lake) return;
+            Biome source = dominant.Key;
+            var candidates = Enumerable.Range(0, map.Biomes.Length)
+                .Where(i => map.Biomes[i] == source && map.WaterDepth[i] <= 0)
+                .Select(i => (Index: i, Alternative: AlternativeBiome(map, i, source), Score: TransitionScore(map, i)))
+                .Where(x => x.Alternative != source)
+                .OrderByDescending(x => x.Score)
+                .ThenBy(x => x.Index)
+                .Take(dominant.Count() - limit)
+                .ToArray();
+            if (candidates.Length == 0) return;
+            foreach (var candidate in candidates) map.Biomes[candidate.Index] = candidate.Alternative;
+        }
+    }
+
+    private static Biome AlternativeBiome(SurfaceMap map, int i, Biome source)
+    {
+        float moisture = map.Moisture[i], temperature = map.Temperature[i], slope = map.Slope[i];
+        return source switch
+        {
+            Biome.Grassland => temperature < 4 ? (moisture > .48f ? Biome.Taiga : Biome.Tundra) : moisture > .54f ? Biome.Forest : temperature > 18 ? Biome.Savanna : Biome.Forest,
+            Biome.Forest => temperature > 24 && moisture > .72f ? Biome.Jungle : moisture < .42f ? Biome.Grassland : slope < .10f ? Biome.Swamp : Biome.Grassland,
+            Biome.Savanna => moisture < .29f ? Biome.Desert : moisture > .58f ? Biome.Forest : Biome.Grassland,
+            Biome.Desert => moisture > .34f ? Biome.Savanna : slope > .42f ? Biome.Rock : Biome.Grassland,
+            Biome.Rock => temperature < -4 ? Biome.Snow : moisture < .34f ? Biome.Desert : Biome.Grassland,
+            Biome.Snow => temperature > -4 ? Biome.Tundra : slope > .55f ? Biome.Rock : Biome.Tundra,
+            Biome.Tundra => moisture > .48f ? Biome.Taiga : slope > .38f ? Biome.Rock : Biome.Grassland,
+            Biome.Taiga => temperature > 8 ? Biome.Forest : moisture < .38f ? Biome.Tundra : Biome.Forest,
+            Biome.Jungle => slope < .10f ? Biome.Swamp : Biome.Forest,
+            Biome.Swamp => moisture > .62f ? Biome.Forest : Biome.Grassland,
+            Biome.Beach => moisture > .56f ? Biome.Grassland : Biome.Savanna,
+            _ => source
+        };
+    }
+
+    private static float TransitionScore(SurfaceMap map, int i)
+        => Math.Abs(map.Moisture[i] - .5f) + Math.Abs(map.Temperature[i] - 14) / 35f + map.Slope[i] * .18f + Math.Abs(map.Curvature[i]) * 3;
 
     private static void MarkBeaches(SurfaceMap map)
     {

@@ -15,6 +15,8 @@ Check(a.Fingerprint() == b.Fingerprint(), "Same seed must reproduce the same wor
 Check(a.Fingerprint() != c.Fingerprint(), "Different seeds must produce different worlds.");
 Check(a.Surface.Height.Max() - a.Surface.Height.Min() > 100, "Terrain must have meaningful vertical relief.");
 Check(a.Surface.Biomes.Distinct().Count() >= 5, "World must contain multiple biomes.");
+Biome[] terrestrialBiomes = ((Biome[])Enum.GetValues(typeof(Biome))).Where(x => x is not Biome.River and not Biome.Lake).ToArray();
+Check(terrestrialBiomes.All(a.Surface.Biomes.Contains), "Default generation must represent every terrestrial biome.");
 Check(a.Surface.Geology.Distinct().Count() >= 2, "Natural worlds must contain multiple geological provinces.");
 Check(a.Surface.RockHardness.All(x => x is >= .1f and <= 1f), "Rock hardness must be finite and normalized.");
 Check(a.Caves.AirCellCount > 0 && a.Caves.Entrances.Count == 4, "Caves must be volumetric and expose guaranteed entrances.");
@@ -52,7 +54,21 @@ Check(universal.Geology.Count == 33 * 33 && universal.ImplicitCaves.Routes.Count
 Check(universal.ImplicitCaves.HasNavigableEntrance(4), "Universal cave graph must expose navigable entrances.");
 Check(universal.Geology.Zip(universal.Generated.Surface.Geology, (column, identity) => column.Identity == identity).All(x => x), "Universal geology must preserve the generated lithology.");
 
-long[] auditSeeds = { 1, 42, 2026, 9876, 173133397 };
+WorldSettings filteredBiomeSettings = TerrainPresetCatalog.Create(TerrainStyle.Natural, 65);
+filteredBiomeSettings.CaveDepthCells = 32;
+filteredBiomeSettings.LabyrinthSize = 31;
+filteredBiomeSettings.RiverThreshold = 70;
+filteredBiomeSettings.EnabledBiomes = new[] { Biome.Desert, Biome.Forest, Biome.Snow };
+GeneratedWorld filteredBiomeWorld = new WorldGenerator(42, filteredBiomeSettings).Generate();
+Check(filteredBiomeWorld.Surface.Biomes.All(filteredBiomeSettings.EnabledBiomes.Contains), "Disabled biomes must not appear in generated maps.");
+Check(filteredBiomeSettings.EnabledBiomes.All(filteredBiomeWorld.Surface.Biomes.Contains), "Every enabled terrestrial biome must be represented.");
+
+long[] auditSeeds =
+{
+    1, 42, 2026, 9876, 173133397,
+    -3719345503411677977, 7681369315911520508, -8466692820785526154,
+    7924047624999685062, -2448665380361343223, -7438691006823355954
+};
 foreach (TerrainStyle style in Enum.GetValues<TerrainStyle>())
 foreach (long seed in auditSeeds)
 {
@@ -73,6 +89,21 @@ foreach (long seed in auditSeeds)
     Check(report.CaveComponents == 1, $"{style}/{seed} retained disconnected cave components.");
     Check(world.Caves.Entrances.All(e => world.Surface.CaveOpening[world.Surface.Index(e.X, e.Z)]), $"{style}/{seed} has a cave entrance without a surface opening.");
 }
+
+WorldSettings lakeSettings = TerrainPresetCatalog.Create(TerrainStyle.Karst, 65);
+lakeSettings.CellSize = 8;
+lakeSettings.CaveDepthCells = 32;
+lakeSettings.LabyrinthSize = 31;
+lakeSettings.RiverThreshold = 70;
+lakeSettings.WaterMode = WaterMode.RiversAndLakes;
+GeneratedWorld lakeWorld = new WorldGenerator(2026, lakeSettings).Generate();
+Check(lakeWorld.Surface.WaterDepth.Where((depth, index) => depth > .25f && !lakeWorld.Surface.RiverChannel[index]).Any(),
+    "RiversAndLakes mode must preserve at least one non-river lake cell.");
+Check(TerrainDiagnostics.Analyze(lakeWorld).ErosionMassRelativeError < 1e-5,
+    "Lake preservation must conserve the complete geomorphic pipeline mass.");
+GeneratedWorld largeAlpineRegression = Generate(7924047624999685062, TerrainStyle.Alpine, 129);
+Check(TerrainDiagnostics.Analyze(largeAlpineRegression).MaximumNeighbourRise <= largeAlpineRegression.Surface.CellSize * 2f,
+    "Large alpine maps must not retain hydraulic wall steps.");
 
 GeneratedWorld alpine = Generate(2026, TerrainStyle.Alpine);
 GeneratedWorld plains = Generate(2026, TerrainStyle.RollingPlains);

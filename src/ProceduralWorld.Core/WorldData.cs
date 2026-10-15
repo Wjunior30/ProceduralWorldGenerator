@@ -24,6 +24,7 @@ public sealed class WorldSettings
     public float RiverWidthMultiplier { get; set; } = 1;
     public float CaveDensity { get; set; } = 1;
     public float BiomeRegionScale { get; set; } = 1;
+    public Biome[] EnabledBiomes { get; set; } = (Biome[])Enum.GetValues(typeof(Biome));
     public float WindX { get; set; } = 1;
     public float WindZ { get; set; } = 0;
     public void Validate()
@@ -34,6 +35,9 @@ public sealed class WorldSettings
         if (!float.IsFinite(WindX) || !float.IsFinite(WindZ) || Math.Abs(WindX) + Math.Abs(WindZ) < .001f)
             throw new ArgumentOutOfRangeException(nameof(WindX), "Wind must be a finite, non-zero 2D vector.");
         if (ErosionIterations < 0 || ErosionIterations > 200) throw new ArgumentOutOfRangeException(nameof(ErosionIterations));
+        if (EnabledBiomes is null || EnabledBiomes.Length == 0 || !EnabledBiomes.Any(x => x is not Biome.River and not Biome.Lake))
+            throw new ArgumentException("At least one terrestrial biome must be enabled.", nameof(EnabledBiomes));
+        EnabledBiomes = EnabledBiomes.Distinct().ToArray();
     }
 }
 

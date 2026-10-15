@@ -124,8 +124,8 @@ public sealed class CaveGenerator
     private static void ConnectEntranceNetwork(CaveVolume caves)
     {
         if (caves.Entrances.Count == 0) return;
-        int hubX = (int)Math.Round(caves.Entrances.Average(e => e.X + e.FacingX * 7));
-        int hubZ = (int)Math.Round(caves.Entrances.Average(e => e.Z + e.FacingZ * 7));
+        int hubX = (int)Math.Round(caves.Entrances.Average(e => EntranceTarget(caves, e).X));
+        int hubZ = (int)Math.Round(caves.Entrances.Average(e => EntranceTarget(caves, e).Z));
         int hubY = Math.Max(3, (int)Math.Round(caves.Entrances.Average(e => e.CaveY)) - 2);
         hubX = Math.Max(4, Math.Min(caves.Width - 5, hubX));
         hubZ = Math.Max(4, Math.Min(caves.Depth - 5, hubZ));
@@ -133,9 +133,17 @@ public sealed class CaveGenerator
         for (int i = 0; i < caves.Entrances.Count; i++)
         {
             CaveEntrance e = caves.Entrances[i];
-            int sx = e.X + e.FacingX * 7, sz = e.Z + e.FacingZ * 7;
+            (int sx, int sz) = EntranceTarget(caves, e);
             CarveCurvedTunnel(caves, sx, e.CaveY, sz, hubX, hubY, hubZ, i);
         }
+    }
+
+    private static (int X, int Z) EntranceTarget(CaveVolume caves, CaveEntrance entrance)
+    {
+        int radius = Math.Max(1, entrance.Radius);
+        int x = Math.Max(radius + 1, Math.Min(caves.Width - radius - 2, entrance.X + entrance.FacingX * 7));
+        int z = Math.Max(radius + 1, Math.Min(caves.Depth - radius - 2, entrance.Z + entrance.FacingZ * 7));
+        return (x, z);
     }
 
     private static void CarveCurvedTunnel(CaveVolume caves, int ax, int ay, int az, int bx, int by, int bz, int salt)

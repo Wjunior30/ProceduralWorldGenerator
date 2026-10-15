@@ -1,6 +1,6 @@
 # Procedural World Generator
 
-Gerador determinístico e independente de engine para mundos de jogos. A biblioteca produz dados puros em .NET Standard 2.1; Godot, Unity, Unreal ou uma engine própria convertem esses dados em malhas, colisores, água, vegetação e objetos.
+Gerador procedural para Unity, com núcleo de dados em .NET Standard 2.1. O adaptador Unity converte o mundo em Terrain, colisão, rios animados e uma cena explorável em terceira pessoa.
 
 ## Sistemas reunidos
 
@@ -76,17 +76,9 @@ Também fazem parte de P1:
 
 ## Resultado do backtest e limitações conhecidas
 
-O backtest ampliado de outubro de 2026 gerou **700 mundos** (sete perfis, 50 seeds e resoluções 65 × 65 e 129 × 129). Todos concluíram a geração; rios ficaram hidraulicamente válidos e as cavernas alcançáveis pelas entradas nos agregados. A comparação geomorfológica obteve 100/100 em todos os casos de `Karst` e `Volcanic`, além de todos os casos de `Alpine` em 65 × 65.
+O backtest ampliado de outubro de 2026 gerou **700 mundos** (sete perfis, 50 seeds e resoluções 65 × 65 e 129 × 129). Todos concluíram a geração com zero rios quebrados ou ascendentes, zero receptores de drenagem ascendentes, zero cavernas inacessíveis e 100% de alcance subterrâneo. O maior degrau medido foi 15,68 m, abaixo do limite estrutural de 16 m, e a menor nota foi 96,26/100.
 
-Ainda há seeds extremas que devem ser rejeitadas pelos diagnósticos ou refinadas futuramente:
-
-- o pior caso estrutural foi `Glacial`, seed `7924047624999685062`, com nota 79,6, domínio de bioma e dois componentes subterrâneos desconectados;
-- 28 de 100 mapas `Natural` não equilibraram áreas planas e encostas, e dez apresentaram baixa diversidade de formas;
-- 12 de 100 mapas `Glacial` ficaram fora do arquétipo, principalmente por relevo insuficiente ou falta de fundos largos de vale;
-- um caso `Alpine` em 129 × 129 teve relevo relativo insuficiente;
-- dois casos `RollingPlains` em 65 × 65 tiveram relevo excessivo ou área plana insuficiente;
-- dois casos `Canyonlands` em 65 × 65 produziram cânions pouco encaixados;
-- casos estruturais raros ainda apresentam domínio excessivo de um bioma, ápices isolados, degraus altos ou componentes subterrâneos desconectados.
+Os achados restantes são artísticos: algumas seeds apresentam repetição leve de declives ou proporção de áreas planas fora do arquétipo desejado. Esses casos não criam paredes, rios inválidos ou redes subterrâneas separadas.
 
 Os relatórios completos ficam em `artifacts/backtest/summary.md` e `artifacts/backtest/real-geology-summary.md`. A comparação é qualitativa, baseada em formas e distribuições; a próxima etapa científica é confrontar alturas e drenagem com DEMs reais reamostrados na mesma escala.
 
@@ -107,6 +99,8 @@ A etapa final de geologia impõe limites reais de inclinação, remove ápices i
 
 ## Execução
 
+No Windows, dê dois cliques em `INICIAR-STUDIO.cmd`. O iniciador sobe o gerador local, aguarda a API responder e abre o endereço correto no navegador. Não abra `wwwroot/index.html` diretamente, pois essa página depende do núcleo C# em execução.
+
 ```text
 dotnet run --project samples/ProceduralWorld.Studio --urls http://127.0.0.1:5179
 dotnet run --project samples/ProceduralWorld.Demo -- 2026 Alpine
@@ -114,7 +108,7 @@ dotnet run --project samples/ProceduralWorld.Backtest -- 65,129 artifacts/backte
 dotnet run --project tests/ProceduralWorld.Tests
 ```
 
-Abra `http://127.0.0.1:5179` para usar o **Procedural World Studio**. A ferramenta permite escolher o perfil geológico, a seed, a resolução, a hidrologia, a altura das montanhas, a força do relevo, a erosão, a largura dos rios, a densidade das cavernas e a escala dos biomas. A pré-visualização mantém os modos 2D ortográfico e 3D em miniatura, com rotação e zoom, além das camadas de relevo, biomas, água e declividade, diagnóstico automático e exportação da configuração em JSON.
+Abra `http://127.0.0.1:5179` para usar o **Procedural World Studio**. A ferramenta permite escolher o perfil geológico, a seed, a resolução, a hidrologia, a altura das montanhas, a força do relevo, a erosão, a largura dos rios, a densidade das cavernas e a escala dos biomas. Todos os biomas vêm habilitados e representados por padrão; a lista no painel de parâmetros permite remover individualmente os que não devem participar da geração. A pré-visualização mantém os modos 2D ortográfico e 3D em miniatura, com rotação e zoom, além das camadas de relevo, biomas, água e declividade, diagnóstico automático e exportação da configuração em JSON.
 
 O backtest grava JSON, CSV, resumo Markdown e renderizações PPM de regressão para a seed de referência de cada perfil. Sem argumento de resolução, ele valida 65 × 65 e 129 × 129.
 
@@ -126,19 +120,22 @@ dotnet run --project samples/ProceduralWorld.Backtest -- 65,129 artifacts/backte
 
 O terceiro argumento define a quantidade de seeds. `real-geology-summary.md` compara relevo relativo, distribuição de declives, drenagem e formas diagnósticas com arquétipos documentados pelo USGS. Essa análise é geomorfológica e não substitui uma comparação célula a célula com um modelo digital de elevação real.
 
-O Studio oferece cinco aparências intercambiáveis sem regenerar o mundo: **mapa técnico**, **estilizado**, **realista PBR**, **satélite** e **miniatura/diorama**. Os níveis baixo, médio e alto ajustam suavização, densidade de detalhes, vegetação e custo do WebGL. A mistura visual considera altitude, declive, bioma e água, funciona no 2D e no 3D e é incluída na configuração JSON exportada.
+O Studio oferece cinco aparências intercambiáveis sem regenerar o mundo: **mapa técnico**, **estilizado**, **realista procedural**, **satélite** e **miniatura/diorama**. Os níveis baixo, médio e alto ajustam suavização, densidade de detalhes, vegetação e custo do WebGL. A mistura visual considera altitude, declive, bioma e água, funciona no 2D e no 3D e é incluída na configuração JSON exportada.
 
 O Studio é uma ferramenta de autoria separada dos jogos. Ele consome `ProceduralWorld.Core`, mas nenhuma interface do Studio precisa ser incorporada ao HUD do jogo final.
 
-### Criar um projeto em uma engine
+### Criar um projeto Unity
 
-O botão **Criar na Engine** procura instalações locais do Godot, Unity e Unreal. O assistente permite escolher a pasta de destino, visualizar antecipadamente todos os arquivos e autorizar explicitamente a criação e a abertura da engine.
+O botão **Criar na Unity** detecta o editor, permite revisar os arquivos e exporta um projeto independente com o [adaptador Unity](adapters/unity/README.md). A Unity constrói a cena na primeira importação; o personagem, a câmera orbital, o rio e os materiais já fazem parte do pacote.
 
-- **Godot:** projeto executável com terreno, cores de bioma, colisão, câmera e iluminação.
-- **Unity:** estrutura de projeto com `Terrain`, câmera e iluminação criados a partir do mundo exportado.
-- **Unreal Engine:** `.uproject`, heightmap RAW16, mapa de biomas e instruções de importação.
-- **Genérico:** dados JSON, RAW16 e RAW8 que podem ser consumidos por qualquer runtime.
+O Studio incorpora os recursos do adaptador e a DLL do núcleo, inclusive quando publicado. Os dados JSON, RAW16 e RAW8 permanecem disponíveis na pasta `ProceduralWorld`. O modo Rios e Lagos exporta todos os dados, mas avisa que a apresentação e a física do adaptador cobrem apenas rios.
 
-O núcleo nunca executa uma engine. Essa responsabilidade fica no Studio e ocorre apenas depois da confirmação do usuário. Caminhos de sistema e raízes de disco são rejeitados, e pastas não vazias exigem autorização adicional para substituição.
+O núcleo não abre programas. O Studio só abre a Unity após a autorização na tela de criação. Pastas protegidas são rejeitadas e destinos existentes exigem a opção de substituição.
 
-Use `UniversalWorldGenerator` para receber terreno, geologia, rios, cavernas e labirinto em um único pacote. `IWorldAdapter` e os planos de streaming conectam os dados ao runtime escolhido. Veja `MIGRATION.md` para a origem de cada sistema.
+## Rios e exploração
+
+`RiverSurfaceField` fornece leito, superfície, profundidade e corrente a partir de um único campo refinado. `WaterPhysics` mantém utilitários de submersão, arrasto e empuxo. O adaptador utiliza Terrain nativo, água animada, personagem com caminhada/corrida/salto, câmera com colisão e mouse livre, natação e correnteza.
+
+O jogo aprovado está em `../SimulationLife`, agora um projeto Unity. A antiga pasta de prévia permanece apenas como cópia de trabalho; o repositório do jogo é a referência principal.
+
+Validação do pacote: `dotnet run --project tests/ProceduralWorld.RiverTests`. A suíte verifica física, exportação e inclusão completa do adaptador. A Unity também possui verificações de execução em `ThirdPersonValidation`.

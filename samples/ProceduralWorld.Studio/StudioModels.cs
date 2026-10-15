@@ -1,7 +1,9 @@
+using System.Text.Json.Serialization;
+
 namespace ProceduralWorld.Studio;
 
 public sealed record GenerateRequest(
-    long Seed,
+    [property: JsonNumberHandling(JsonNumberHandling.AllowReadingFromString | JsonNumberHandling.WriteAsString)] long Seed,
     string Style,
     int Size,
     float MountainHeight,
@@ -10,7 +12,8 @@ public sealed record GenerateRequest(
     float RiverWidth,
     float CaveDensity,
     float BiomeScale,
-    string WaterMode);
+    string WaterMode,
+    string[]? EnabledBiomes);
 
 public sealed record EngineDescriptor(
     string Id,

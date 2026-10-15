@@ -7,4 +7,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ProceduralWorld.Core\ProceduralWorld.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../adapters/unity/template/**/*"><LogicalName>UnityTemplate/%(RecursiveDir)%(Filename)%(Extension)</LogicalName></EmbeddedResource>
+  </ItemGroup>
 </Project>

@@ -4,6 +4,12 @@ import { OrbitControls } from './vendor/OrbitControls.js';
 const canvas = document.getElementById('terrain3d');
 let renderer, scene, camera, controls, worldRoot, activeWorld, activeView = 'terrain';
 
+function seedHash(seed) {
+  let hash = 2166136261;
+  for (const char of String(seed)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return hash >>> 0;
+}
+
 function initialize() {
   if (renderer) return true;
   try {
@@ -60,8 +66,8 @@ function initialize() {
 function disposeObject(root) {
   root?.traverse(object => {
     object.geometry?.dispose();
-    if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
-    else object.material?.dispose();
+    if (Array.isArray(object.material)) object.material.forEach(material => { material.bumpMap?.dispose(); material.roughnessMap?.dispose(); material.dispose(); });
+    else { object.material?.bumpMap?.dispose(); if (object.material?.roughnessMap !== object.material?.bumpMap) object.material?.roughnessMap?.dispose(); object.material?.dispose(); }
   });
   if (root) scene.remove(root);
 }
@@ -77,7 +83,7 @@ function terrainColor(world, index, normalized, view, options) {
   if (world.waterDepth[index] > .04) return new THREE.Color(0x347fa5);
   const style=options?.style||'realistic', biome=world.biomes[index], slope=world.slope[index];
   if(style==='stylized')return new THREE.Color(biomeColor(biome)).offsetHSL(0,.06,.03);
-  if(style==='satellite'){const grain=.88+(((index*1103515245+world.seed)>>>9)&31)/150;return new THREE.Color(biomeColor(biome)).multiplyScalar(grain).offsetHSL(0,.08,-.03)}
+  if(style==='satellite'){const grain=.88+(((Math.imul(index,1103515245)+seedHash(world.seed))>>>9)&31)/150;return new THREE.Color(biomeColor(biome)).multiplyScalar(grain).offsetHSL(0,.08,-.03)}
   if(style==='diorama'){if(normalized>.82)return new THREE.Color(0xe8e0cf);if(slope>.42)return new THREE.Color(0x7c6b5b);if(normalized>.48)return new THREE.Color(0x69844c);return new THREE.Color(0x4d7748)}
   if(style==='realistic'){if(normalized>.84)return new THREE.Color(0xecefeb);if(slope>.48)return new THREE.Color(0x706a60);if(biome===2||biome===3)return new THREE.Color(0xbea46f);if(biome===6||biome===7)return new THREE.Color(0x30683d);if(normalized>.5)return new THREE.Color(0x687e4c);return new THREE.Color(0x467043)}
   if (normalized > .82) return new THREE.Color(0xe4e8e4);
@@ -107,7 +113,8 @@ function createTerrain(world, view, root, options) {
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   const realistic=options?.style==='realistic', quality=options?.quality||'medium';
-  const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: realistic ? .82 : .9, metalness: 0, flatShading: quality==='low' }));
+  const detail = realistic && quality !== 'low' ? createSurfaceDetailTexture(world.seed, quality === 'high' ? 256 : 128) : null;
+  const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: realistic ? .82 : .9, roughnessMap: detail, bumpMap: detail, bumpScale: detail ? .18 : 0, metalness: 0, flatShading: quality==='low' }));
   terrain.castShadow = terrain.receiveShadow = true;
   root.add(terrain);
   createWalls(world, min, span, root);
@@ -115,9 +122,29 @@ function createTerrain(world, view, root, options) {
   if(quality!=='low')createDetails(world, min, span, root, view, quality);
 }
 
+function createSurfaceDetailTexture(seed, size) {
+  const data = new Uint8Array(size * size), base = seedHash(seed);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let hash = Math.imul(x + base, 374761393) ^ Math.imul(y + 17, 668265263);
+    hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
+    const fine = (hash ^ (hash >>> 16)) & 63;
+    const broad = 24 * (Math.sin(x * .12) * Math.cos(y * .09) + 1);
+    data[y * size + x] = Math.max(24, Math.min(235, 110 + fine + broad));
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RedFormat);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(18, 18);
+  texture.needsUpdate = true;
+  return texture;
+}
+
 function point(world, x, z, min, span, yOffset = 0) {
   const i = z * world.size + x;
   return new THREE.Vector3(x / (world.size - 1) * 100 - 50, (world.height[i] - min) / span * 34 + yOffset, z / (world.size - 1) * 100 - 50);
+}
+
+function pointAtHeight(world, x, z, height, min, span, yOffset = 0) {
+  return new THREE.Vector3(x / (world.size - 1) * 100 - 50, (height - min) / span * 34 + yOffset, z / (world.size - 1) * 100 - 50);
 }
 
 function createWalls(world, min, span, root) {
@@ -136,14 +163,14 @@ function createWalls(world, min, span, root) {
 
 function createWater(world, min, span, root) {
   const n=world.size, positions=[],indices=[];
-  for(let z=0;z<n-1;z++)for(let x=0;x<n-1;x++){const ids=[z*n+x,z*n+x+1,(z+1)*n+x+1,(z+1)*n+x];if(!ids.some(i=>world.waterDepth[i]>.02))continue;const base=positions.length/3;for(const i of ids){const px=i%n,pz=Math.floor(i/n),p=point(world,px,pz,min,span,.18+Math.min(1.2,world.waterDepth[i]*.08));positions.push(p.x,p.y,p.z)}indices.push(base,base+1,base+2,base,base+2,base+3)}
+  for(let z=0;z<n-1;z++)for(let x=0;x<n-1;x++){const ids=[z*n+x,z*n+x+1,(z+1)*n+x+1,(z+1)*n+x],wet=ids.filter(i=>world.waterDepth[i]>.02);if(!wet.length)continue;const level=wet.reduce((sum,i)=>sum+world.height[i]+world.waterDepth[i],0)/wet.length,base=positions.length/3;for(const i of ids){const px=i%n,pz=Math.floor(i/n),surface=world.waterDepth[i]>.02?world.height[i]+world.waterDepth[i]:level,p=pointAtHeight(world,px,pz,surface,min,span,.08);positions.push(p.x,p.y,p.z)}indices.push(base,base+1,base+2,base,base+2,base+3)}
   if(!indices.length)return;const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geometry.setIndex(indices);geometry.computeVertexNormals();
-  const water=new THREE.Mesh(geometry,new THREE.MeshPhysicalMaterial({color:0x187fb4,roughness:.16,metalness:.08,transparent:true,opacity:.78,clearcoat:1,clearcoatRoughness:.12}));water.receiveShadow=true;root.add(water);
+  const water=new THREE.Mesh(geometry,new THREE.MeshPhysicalMaterial({color:0x187fb4,roughness:.16,metalness:.08,transparent:true,opacity:.78,clearcoat:1,clearcoatRoughness:.12,polygonOffset:true,polygonOffsetFactor:-1}));water.receiveShadow=true;root.add(water);
 }
 
 function createDetails(world,min,span,root,view,quality){
   if(view!=='terrain'&&view!=='biomes')return;const n=world.size,dummy=new THREE.Object3D(),treePoints=[],rockPoints=[],cavePoints=[];
-  const density=quality==='high'?64:44,stride=Math.max(2,Math.floor(n/density));for(let z=2;z<n-2;z+=stride)for(let x=2;x<n-2;x+=stride){const i=z*n+x,hash=((x*73856093)^(z*19349663)^world.seed)>>>0;if((world.biomes[i]===6||world.biomes[i]===7||world.biomes[i]===9)&&world.waterDepth[i]<.01&&hash%5<2)treePoints.push([x,z,hash]);else if(world.slope[i]>.58&&hash%19===0)rockPoints.push([x,z,hash])}
+  const density=quality==='high'?64:44,stride=Math.max(2,Math.floor(n/density)),seed=seedHash(world.seed);for(let z=2;z<n-2;z+=stride)for(let x=2;x<n-2;x+=stride){const i=z*n+x,hash=((x*73856093)^(z*19349663)^seed)>>>0;if((world.biomes[i]===6||world.biomes[i]===7||world.biomes[i]===9)&&world.waterDepth[i]<.01&&hash%5<2)treePoints.push([x,z,hash]);else if(world.slope[i]>.58&&hash%19===0)rockPoints.push([x,z,hash])}
   for(let z=0;z<n;z++)for(let x=0;x<n;x++){const i=z*n+x;if(world.caveOpening?.[i]&&((x+z)%3===0))cavePoints.push([x,z,0])}
   const trees=new THREE.InstancedMesh(new THREE.ConeGeometry(.48,2.7,7),new THREE.MeshStandardMaterial({color:0x214c2d,roughness:.94}),treePoints.length);trees.castShadow=true;treePoints.forEach(([x,z,hash],i)=>{const p=point(world,x,z,min,span,1.3);dummy.position.copy(p);const s=.72+(hash%100)/250;dummy.scale.set(s,s,s);dummy.rotation.y=(hash%628)/100;dummy.updateMatrix();trees.setMatrixAt(i,dummy.matrix)});root.add(trees);
   const rocks=new THREE.InstancedMesh(new THREE.DodecahedronGeometry(.65,0),new THREE.MeshStandardMaterial({color:0x68665d,roughness:1}),rockPoints.length);rocks.castShadow=true;rockPoints.forEach(([x,z,hash],i)=>{dummy.position.copy(point(world,x,z,min,span,.35));const s=.5+(hash%80)/100;dummy.scale.set(s,s*.7,s);dummy.rotation.set(hash%7,hash%11,hash%5);dummy.updateMatrix();rocks.setMatrixAt(i,dummy.matrix)});root.add(rocks);

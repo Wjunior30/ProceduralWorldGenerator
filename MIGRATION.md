@@ -13,4 +13,4 @@
 | Labyrinthitis | corridors, glades, arenas, niches, dungeons, drains and wall layers | `LabyrinthWorld.cs`, `LabyrinthGenerator.cs` |
 | Project FiberBlade | deterministic 2D plains/caves/foundations and collision motor | `PlatformLayout.cs`, `PlatformMotor.cs` |
 
-Meshes, materials, rendering nodes and engine physics are intentionally adapters: the library emits deterministic data for Godot, Unity, Unreal or a custom engine.
+Meshes, materials, rendering nodes and engine physics are intentionally adapters: the library emits deterministic data for the Unity adapter.

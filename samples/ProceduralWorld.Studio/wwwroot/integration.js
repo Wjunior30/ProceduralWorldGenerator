@@ -1,18 +1,18 @@
-let engines=[];let selectedEngine='godot';let lastPlan=null;
+let engines=[];let selectedEngine='unity';let lastPlan=null;
 
 async function loadEngines(){
   try{engines=await fetch('/api/engines').then(r=>r.json());renderEngineStatus();renderEngineList()}
   catch(error){$('engine-status').textContent='Não foi possível procurar engines instaladas.';console.error(error)}
 }
 function renderEngineStatus(){
-  $('engine-status').innerHTML=engines.filter(e=>e.id!=='generic').map(e=>`<div class="engine-pill ${e.detected?'detected':''}"><span>${e.name}</span><b>${e.status}</b></div>`).join('')
+  $('engine-status').innerHTML=engines.map(e=>`<div class="engine-pill ${e.detected?'detected':''}"><span>${e.name}</span><b>${e.status}</b></div>`).join('')
 }
 function renderEngineList(){
   const root=$('engine-list');root.innerHTML='';
   for(const engine of engines){
     const button=document.createElement('button');button.className=`engine-option ${engine.detected?'detected':''} ${engine.id===selectedEngine?'active':''}`;
     button.innerHTML=`<em>${engine.detected?'DISPONÍVEL':'NÃO DETECTADA'}</em><strong>${engine.name}</strong><small>${engine.capability}</small>`;
-    button.onclick=()=>{selectedEngine=engine.id;lastPlan=null;$('consent').checked=false;$('create-project').disabled=true;$('consent-row').classList.add('hidden');$('project-preview').innerHTML='<p>Clique em visualizar para revisar o plano desta engine.</p>';$('open-after').disabled=engine.id==='generic';if(engine.id==='generic')$('open-after').checked=false;renderEngineList()};
+    button.onclick=()=>{selectedEngine=engine.id;lastPlan=null;$('consent').checked=false;$('create-project').disabled=true;$('consent-row').classList.add('hidden');$('project-preview').innerHTML='<p>Clique em visualizar para revisar o plano da Unity.</p>';$('open-after').disabled=engine.id==='generic';if(engine.id==='generic')$('open-after').checked=false;renderEngineList()};
     root.appendChild(button)
   }
 }
@@ -35,8 +35,8 @@ async function createProject(){
   if(!lastPlan||!$('consent').checked)return;
   const button=$('create-project'),result=$('integration-result');button.disabled=true;button.textContent='CRIANDO PROJETO';result.classList.add('hidden');
   try{
-    const response=await fetch('/api/integrations/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(integrationRequest(true))});const data=await response.json();if(!response.ok)throw new Error(data.error||'Falha ao criar o projeto.');result.className='integration-result';result.innerHTML=`<strong>${escapeHtml(data.message)}</strong><br>${data.filesWritten} arquivos · ID ${data.fingerprint}<br>${escapeHtml(data.projectPath)}`;$('status').textContent=data.opened?'ENGINE ABERTA':'PROJETO CRIADO'
-  }catch(error){result.className='integration-result error';result.textContent=error.message}finally{result.classList.remove('hidden');button.textContent='CRIAR E ABRIR NA ENGINE';button.disabled=!$('consent').checked}
+    const response=await fetch('/api/integrations/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(integrationRequest(true))});const data=await response.json();if(!response.ok)throw new Error(data.error||'Falha ao criar o projeto.');result.className='integration-result';result.innerHTML=`<strong>${escapeHtml(data.message)}</strong><br>${data.filesWritten} arquivos · ID ${data.fingerprint}<br>${escapeHtml(data.projectPath)}`;$('status').textContent=data.opened?'UNITY ABERTA':'PROJETO CRIADO'
+  }catch(error){result.className='integration-result error';result.textContent=error.message}finally{result.classList.remove('hidden');button.textContent='CRIAR E ABRIR NA UNITY';button.disabled=!$('consent').checked}
 }
 function escapeHtml(value){const div=document.createElement('div');div.textContent=String(value);return div.innerHTML}
 

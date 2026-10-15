@@ -13,15 +13,20 @@
     <div class="brand-mark">PW</div>
     <div>
       <h1>PROCEDURAL WORLD STUDIO</h1>
-      <p>GERADOR DE MUNDOS INDEPENDENTE DE ENGINE</p>
+      <p>GERADOR DE MUNDOS PARA UNITY</p>
     </div>
     <div class="top-actions">
       <button id="randomize" class="quiet">NOVA SEED</button>
       <button id="export" class="quiet">EXPORTAR CONFIGURAÇÃO</button>
-      <button id="integrate" class="quiet">CRIAR NA ENGINE</button>
+      <button id="integrate" class="quiet">CRIAR NA UNITY</button>
       <button id="generate" class="primary">GERAR MUNDO</button>
     </div>
   </header>
+
+  <div id="server-warning" class="server-warning hidden">
+    <strong>STUDIO ABERTO SEM O GERADOR</strong>
+    <span>Esta página foi aberta diretamente como arquivo. Feche esta aba e execute <b>INICIAR-STUDIO.cmd</b> na pasta do projeto.</span>
+  </div>
 
   <main>
     <aside class="left-panel panel">
@@ -43,7 +48,7 @@
         <label class="field-label" for="waterMode">HIDROLOGIA</label>
         <select id="waterMode">
           <option value="RiversOnly">Somente rios</option>
-          <option value="RiversAndLakes">Rios e lagos</option>
+          <option value="RiversAndLakes" selected>Rios e lagos</option>
           <option value="None">Sem água</option>
         </select>
       </section>
@@ -81,7 +86,7 @@
         <select id="materialStyle">
           <option value="technical">Mapa técnico</option>
           <option value="stylized">Estilizado</option>
-          <option value="realistic" selected>Realista PBR</option>
+          <option value="realistic" selected>Realista procedural</option>
           <option value="satellite">Satélite</option>
           <option value="diorama">Miniatura / diorama</option>
         </select>
@@ -94,6 +99,22 @@
         <div class="slider-field"><label>LARGURA DOS RIOS <output id="riverOut">1.00×</output></label><input id="river" type="range" min="25" max="300" value="100"></div>
         <div class="slider-field"><label>DENSIDADE DE CAVERNAS <output id="caveOut">1.00×</output></label><input id="cave" type="range" min="25" max="300" value="100"></div>
         <div class="slider-field"><label>ESCALA DOS BIOMAS <output id="biomeOut">1.00×</output></label><input id="biome" type="range" min="40" max="250" value="100"></div>
+        <div class="biome-selector-head"><span>BIOMAS INCLUÍDOS</span><small>Todos ativos por padrão</small></div>
+        <div id="biome-options" class="biome-options">
+          <label><input type="checkbox" data-biome value="River" checked><i style="--biome:#326d7b"></i>Rio</label>
+          <label><input type="checkbox" data-biome value="Lake" checked><i style="--biome:#315a78"></i>Lago</label>
+          <label><input type="checkbox" data-biome value="Beach" checked><i style="--biome:#d7c58e"></i>Praia</label>
+          <label><input type="checkbox" data-biome value="Desert" checked><i style="--biome:#b99769"></i>Deserto</label>
+          <label><input type="checkbox" data-biome value="Savanna" checked><i style="--biome:#a4a765"></i>Savana</label>
+          <label><input type="checkbox" data-biome value="Grassland" checked><i style="--biome:#6d9a64"></i>Pradaria</label>
+          <label><input type="checkbox" data-biome value="Forest" checked><i style="--biome:#3f7657"></i>Floresta</label>
+          <label><input type="checkbox" data-biome value="Jungle" checked><i style="--biome:#2e6550"></i>Selva</label>
+          <label><input type="checkbox" data-biome value="Swamp" checked><i style="--biome:#536d57"></i>Pântano</label>
+          <label><input type="checkbox" data-biome value="Taiga" checked><i style="--biome:#648075"></i>Taiga</label>
+          <label><input type="checkbox" data-biome value="Tundra" checked><i style="--biome:#a6aaa0"></i>Tundra</label>
+          <label><input type="checkbox" data-biome value="Rock" checked><i style="--biome:#77746d"></i>Rocha</label>
+          <label><input type="checkbox" data-biome value="Snow" checked><i style="--biome:#e2e6e4"></i>Neve</label>
+        </div>
       </section>
 
       <section class="diagnostics">
@@ -108,8 +129,8 @@
       </section>
 
       <section class="engine-summary">
-        <div class="section-title"><span>05</span> ENGINES</div>
-        <div id="engine-status" class="engine-status">Procurando engines instaladas...</div>
+        <div class="section-title"><span>05</span> UNITY</div>
+        <div id="engine-status" class="engine-status">Procurando a Unity instalada...</div>
       </section>
     </aside>
   </main>
@@ -117,12 +138,12 @@
   <div id="integration-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="integration-title">
     <div class="modal-card">
       <div class="modal-head">
-        <div><small>ASSISTENTE DE INTEGRAÇÃO</small><h2 id="integration-title">Criar projeto na engine</h2></div>
+        <div><small>ASSISTENTE DE INTEGRAÇÃO</small><h2 id="integration-title">Criar projeto na Unity</h2></div>
         <button id="close-integration" class="icon-button" aria-label="Fechar">×</button>
       </div>
       <div class="integration-grid">
         <div>
-          <label class="field-label">ENGINE DE DESTINO</label>
+          <label class="field-label">UNITY</label>
           <div id="engine-list" class="engine-list"></div>
         </div>
         <div class="integration-form">
@@ -130,16 +151,16 @@
           <input id="project-name" type="text" value="MeuMundoProcedural">
           <label class="field-label" for="destination">PASTA COMPLETA DO PROJETO</label>
           <input id="destination" type="text" value="V:\Repositories\Wjunior30\GeneratedWorlds\MeuMundoProcedural">
-          <label class="check"><input id="open-after" type="checkbox" checked><span>Abrir a engine depois da criação</span></label>
+          <label class="check"><input id="open-after" type="checkbox" checked><span>Abrir a Unity depois da criação</span></label>
           <label class="check"><input id="overwrite" type="checkbox"><span>Autorizar substituição de arquivos gerados existentes</span></label>
         </div>
       </div>
-      <div id="project-preview" class="project-preview"><p>Escolha a engine e clique em visualizar para conferir todos os arquivos.</p></div>
-      <label id="consent-row" class="consent hidden"><input id="consent" type="checkbox"><span>Eu revisei a pasta e autorizo o Studio a criar os arquivos listados e executar a engine selecionada.</span></label>
+      <div id="project-preview" class="project-preview"><p>Clique em visualizar para conferir todos os arquivos.</p></div>
+      <label id="consent-row" class="consent hidden"><input id="consent" type="checkbox"><span>Eu revisei a pasta e autorizo o Studio a criar os arquivos listados e executar a Unity.</span></label>
       <div id="integration-result" class="integration-result hidden"></div>
       <div class="modal-actions">
         <button id="preview-project" class="quiet">VISUALIZAR ARQUIVOS</button>
-        <button id="create-project" class="primary" disabled>CRIAR E ABRIR NA ENGINE</button>
+        <button id="create-project" class="primary" disabled>CRIAR E ABRIR NA UNITY</button>
       </div>
     </div>
   </div>

@@ -56,7 +56,7 @@ internal static class Erosion
     {
         int n = map.Size;
         var delta = new float[map.Height.Length];
-        int scaledPasses = Math.Max(4, Math.Min(96, (int)Math.Round(passes * 8f / map.CellSize)));
+        int scaledPasses = Math.Max(4, Math.Min(192, (int)Math.Round(passes * 8f / map.CellSize)));
         for (int pass = 0; pass < scaledPasses; pass++)
         {
             Array.Clear(delta, 0, delta.Length);
@@ -87,6 +87,45 @@ internal static class Erosion
                 map.Sediment[low] += transfer;
                 movedTotal += transfer;
             }
+        }
+    }
+
+    public static void LimitExtremeSteps(SurfaceMap map, float maximumRise, int passes)
+    {
+        int n = map.Size;
+        for (int pass = 0; pass < passes; pass++)
+        {
+            bool changed = false;
+            for (int z = 0; z < n; z++)
+            {
+                bool reverse = ((z + pass) & 1) != 0;
+                for (int q = 0; q < n - 1; q++)
+                {
+                    int x = reverse ? n - 2 - q : q;
+                    changed |= Adjust(map.Height, map.Index(x, z), map.Index(x + 1, z), maximumRise);
+                }
+            }
+            for (int x = 0; x < n; x++)
+            {
+                bool reverse = ((x + pass) & 1) == 0;
+                for (int q = 0; q < n - 1; q++)
+                {
+                    int z = reverse ? n - 2 - q : q;
+                    changed |= Adjust(map.Height, map.Index(x, z), map.Index(x, z + 1), maximumRise);
+                }
+            }
+            if (!changed) break;
+        }
+
+        static bool Adjust(float[] height, int a, int b, float maximumRise)
+        {
+            float difference = height[a] - height[b];
+            float excess = Math.Abs(difference) - maximumRise;
+            if (excess <= .0001f) return false;
+            float transfer = excess * .5f;
+            if (difference > 0) { height[a] -= transfer; height[b] += transfer; }
+            else { height[a] += transfer; height[b] -= transfer; }
+            return true;
         }
     }
 
