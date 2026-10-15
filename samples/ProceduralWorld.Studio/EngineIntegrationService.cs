@@ -81,7 +81,7 @@ public sealed class EngineIntegrationService
         {
             world.Seed, style = settings.Style, world.GenerationVersion, size = map.Size, map.CellSize, fingerprint = world.Fingerprint().ToString("X16"),
             minimumHeight = map.Height.Min(), maximumHeight = map.Height.Max(), height = map.Height,
-            waterDepth = map.WaterDepth, biomes = map.Biomes.Select(x => (int)x).ToArray(),
+            waterDepth = map.WaterDepth, biomes = map.Biomes.Select(x => (int)x).ToArray(), seaLevel = BuildSettings(settings).SeaLevel, ocean = map.Ocean,
             slope = map.Slope, flow = map.Flow, drainageReceiver = map.DrainageReceiver, riverChannel = map.RiverChannel, mainRiverChannel = map.MainRiverChannel, sediment = map.Sediment, caveOpening = map.CaveOpening,
             caveEntrances = world.Caves.Entrances.Select(e => new { e.X, e.Z, e.SurfaceY, e.CaveY, e.FacingX, e.FacingZ, e.Radius })
         }, JsonOptions));

@@ -19,13 +19,14 @@ internal static class Hydrology
         Array.Clear(map.LagoonBasin, 0, map.LagoonBasin.Length);
         Array.Clear(map.LagoonSurface, 0, map.LagoonSurface.Length);
         Array.Fill(map.DrainageReceiver, -1);
-        if (settings.WaterMode == WaterMode.None) return;
+        Array.Clear(map.Ocean, 0, map.Ocean.Length);
+        if (settings.WaterMode == WaterMode.None) { MarkOcean(map, settings); return; }
         double targetMass = map.Height.Sum(x => (double)x);
         bool preserveLakes = settings.WaterMode == WaterMode.RiversAndLakes;
         float[] bias = MeanderBias(map);
 
         DrainageSolution first = Solve(map, bias);
-        MarkMainRiver(map, first);
+        MarkMainRiver(map, first, settings);
         MarkChannels(map, settings);
         CarveChannels(map, settings, first);
 
@@ -41,11 +42,34 @@ internal static class Hydrology
         Erosion.SuppressIsolatedApexes(map, settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f, 4);
         DrainageSolution final = Solve(map, bias);
         EnsureDownhillReceivers(map, final);
-        MarkMainRiver(map, final);
+        MarkMainRiver(map, final, settings);
         MarkChannels(map, settings);
         AssignWater(map, settings, final);
         ClassifyBasinsAndStreams(map, final);
         RebalanceHeightMass(map, targetMass);
+        MarkOcean(map, settings);
+    }
+
+    /// <summary>Cells below sea level connected to the map edge become ocean (other low ground stays land).</summary>
+    private static void MarkOcean(SurfaceMap map, WorldSettings settings)
+    {
+        if (settings.SeaLevel <= 0) return;
+        int n = map.Size; var queue = new Queue<int>();
+        for (int k = 0; k < n; k++) foreach (int i in new[] { map.Index(k, 0), map.Index(k, n - 1), map.Index(0, k), map.Index(n - 1, k) })
+            if (!map.Ocean[i] && map.Height[i] < settings.SeaLevel) { map.Ocean[i] = true; queue.Enqueue(i); }
+        while (queue.Count > 0)
+        {
+            int i = queue.Dequeue(), x = i % n, z = i / n;
+            foreach (var (nx, nz) in new[] { (x + 1, z), (x - 1, z), (x, z + 1), (x, z - 1) })
+            {
+                if (nx < 0 || nz < 0 || nx >= n || nz >= n) continue;
+                int j = map.Index(nx, nz);
+                if (map.Ocean[j] || map.Height[j] >= settings.SeaLevel) continue;
+                map.Ocean[j] = true; queue.Enqueue(j);
+            }
+        }
+        for (int i = 0; i < map.Height.Length; i++)
+            if (map.Ocean[i]) { map.WaterDepth[i] = settings.SeaLevel - map.Height[i]; map.RiverChannel[i] = false; map.MainRiverChannel[i] = false; }
     }
 
     private static void ClassifyBasinsAndStreams(SurfaceMap map, DrainageSolution solution)
@@ -147,10 +171,11 @@ internal static class Hydrology
         Array.Clear(map.RiverChannel, 0, map.RiverChannel.Length);
         float tributaryThreshold = settings.RiverThreshold * settings.TributaryThresholdMultiplier;
         for (int i = 0; i < map.Flow.Length; i++)
-            map.RiverChannel[i] = map.MainRiverChannel[i] || (!map.LagoonBasin[i] && map.Flow[i] >= tributaryThreshold);
+            map.RiverChannel[i] = map.MainRiverChannel[i] || (!settings.SingleRiver && !map.LagoonBasin[i] && map.Flow[i] >= tributaryThreshold
+                && !(settings.SeaLevel > 0 && map.Height[i] < settings.SeaLevel));
     }
 
-    private static void MarkMainRiver(SurfaceMap map, DrainageSolution solution)
+    private static void MarkMainRiver(SurfaceMap map, DrainageSolution solution, WorldSettings settings)
     {
         Array.Clear(map.MainRiverChannel, 0, map.MainRiverChannel.Length);
         var distance = new float[map.Height.Length];
@@ -167,9 +192,11 @@ internal static class Hydrology
             }
             if (distance[cell] > longest) { longest = distance[cell]; source = cell; }
         }
+        if (settings.SingleRiver && map.RiverSource >= 0) source = map.RiverSource;
         var seen = new bool[map.Height.Length];
         for (int cell = source; cell >= 0 && !seen[cell]; cell = map.DrainageReceiver[cell])
         {
+            if (settings.SeaLevel > 0 && map.Height[cell] < settings.SeaLevel) break; // the river ends where it meets the sea
             seen[cell] = true;
             map.MainRiverChannel[cell] = true;
         }

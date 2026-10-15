@@ -2,7 +2,7 @@ namespace ProceduralWorld.Core;
 
 public enum Biome : byte { River, Lake, Beach, Desert, Savanna, Grassland, Forest, Jungle, Swamp, Taiga, Tundra, Rock, Snow }
 public enum WaterMode { None, RiversOnly, RiversAndLakes }
-public enum TerrainStyle { Natural, Alpine, Canyonlands, Karst, RollingPlains, Glacial, Volcanic }
+public enum TerrainStyle { Natural, Alpine, Canyonlands, Karst, RollingPlains, Glacial, Volcanic, Island }
 public enum LandformKind : byte { Plain, Hill, Massif, Valley, Basin, Ridge, Cirque, Mesa, Escarpment, Sinkhole, DryValley, Floodplain, Terrace, Moraine, VolcanicCone, Caldera, LavaField }
 
 public sealed class WorldSettings
@@ -32,6 +32,10 @@ public sealed class WorldSettings
     public Biome[] EnabledBiomes { get; set; } = (Biome[])Enum.GetValues(typeof(Biome));
     public float WindX { get; set; } = 1;
     public float WindZ { get; set; } = 0;
+    /// <summary>Sea surface height; 0 disables the ocean. Land below it that touches the map edge becomes sea.</summary>
+    public float SeaLevel { get; set; }
+    /// <summary>Keep only the principal river (no tributaries).</summary>
+    public bool SingleRiver { get; set; }
     public void Validate()
     {
         if (GenerationVersion < 1 || Size < 17) throw new ArgumentOutOfRangeException(nameof(Size));
@@ -54,7 +58,7 @@ public sealed class SurfaceMap
         Height = new float[count]; Slope = new float[count]; Temperature = new float[count]; Moisture = new float[count];
         Flow = new float[count]; WaterDepth = new float[count]; LagoonSurface = new float[count]; Sediment = new float[count]; Ridge = new float[count]; Continentalness = new float[count]; RockHardness = new float[count]; Strata = new float[count];
         Curvature = new float[count]; SlopeSaturation = new float[count]; BasinId = new int[count]; StreamOrder = new byte[count]; CaveOpening = new bool[count]; Landforms = new LandformKind[count];
-        DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; MainRiverChannel = new bool[count]; LagoonBasin = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
+        DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; MainRiverChannel = new bool[count]; LagoonBasin = new bool[count]; Ocean = new bool[count]; Road = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
     }
     public int Size { get; }
     public float CellSize { get; }
@@ -81,6 +85,14 @@ public sealed class SurfaceMap
     public bool[] RiverChannel { get; }
     public bool[] MainRiverChannel { get; }
     public bool[] LagoonBasin { get; }
+    public bool[] Ocean { get; }
+    /// <summary>Road cells connecting settlement sites (island style).</summary>
+    public bool[] Road { get; }
+    /// <summary>Flattened places for settlements, work and factions.</summary>
+    public List<Site> Sites { get; } = new();
+    public List<RoadLink> RoadLinks { get; } = new();
+    /// <summary>Preferred source cell of the principal river, or -1 to pick the longest drainage path.</summary>
+    public int RiverSource { get; set; } = -1;
     public Biome[] Biomes { get; }
     public GeologicalIdentity[] Geology { get; }
     public int Index(int x, int z) => checked(z * Size + x);
@@ -166,3 +178,9 @@ public sealed class GeneratedWorld
         return PositionalHash.Mix(hash ^ (ulong)Caves.AirCellCount ^ ((ulong)Labyrinth.WalkableCount << 32));
     }
 }
+
+public enum SiteKind { Village, Mine, Fishing, Farm, HuntersCamp, Outpost, Ruins, Town, Port, BanditCamp, Nest }
+/// <summary>A flattened place in grid cells; Radius in cells.</summary>
+public sealed record Site(SiteKind Kind, int X, int Z, int Radius, int Tier = 1);
+/// <summary>Road between two sites (indexes into SurfaceMap.Sites); Length in metres along the road.</summary>
+public sealed record RoadLink(int From, int To, float Length);

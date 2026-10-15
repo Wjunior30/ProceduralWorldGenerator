@@ -92,7 +92,7 @@ foreach (long seed in auditSeeds)
     Check(report.UphillDrainageCells == 0, $"{style}/{seed} retained uphill drainage receivers.");
     Check(report.CaveEntrances == 4 && report.InaccessibleEntrances == 0 && report.ReachableCaveRatio >= .999, $"{style}/{seed} produced disconnected caves.");
     Check(report.RepeatedSteepGradeRatio < .04, $"{style}/{seed} saturated too many edges at one grade ({report.RepeatedSteepGradeRatio:P1}).");
-    Check(report.DominantBiomeRatio <= .78, $"{style}/{seed} is dominated by one biome ({report.DominantBiomeRatio:P1}).");
+    Check(report.DominantBiomeRatio <= (style == TerrainStyle.Island ? .85 : .78), $"{style}/{seed} is dominated by one biome ({report.DominantBiomeRatio:P1}).");
     Check(report.DrainageOutlets == 1, $"{style}/{seed} must drain through one principal outlet ({report.DrainageOutlets}).");
     Check(report.ErosionMassRelativeError < 1e-5, $"{style}/{seed} did not conserve erosion mass ({report.ErosionMassRelativeError:E2}).");
     Check(report.BasinCount == report.DrainageOutlets, $"{style}/{seed} basin and outlet counts disagree.");
@@ -100,8 +100,9 @@ foreach (long seed in auditSeeds)
     int[] mainRiver = Enumerable.Range(0, world.Surface.Height.Length).Where(i => world.Surface.MainRiverChannel[i]).ToArray();
     int mainSpanX = mainRiver.Max(i => i % world.Surface.Size) - mainRiver.Min(i => i % world.Surface.Size);
     int mainSpanZ = mainRiver.Max(i => i / world.Surface.Size) - mainRiver.Min(i => i / world.Surface.Size);
-    Check(Math.Max(mainSpanX, mainSpanZ) >= world.Surface.Size * .70, $"{style}/{seed} principal river does not cross enough of the map ({mainSpanX}x{mainSpanZ}).");
-    Check(mainRiver.All(i => world.Surface.DrainageReceiver[i] < 0 || world.Surface.MainRiverChannel[world.Surface.DrainageReceiver[i]]), $"{style}/{seed} principal river is disconnected.");
+    // Island rivers run from the central peak to the coast instead of across the whole map.
+    Check(Math.Max(mainSpanX, mainSpanZ) >= world.Surface.Size * (style == TerrainStyle.Island ? .22 : .70), $"{style}/{seed} principal river does not cross enough of the map ({mainSpanX}x{mainSpanZ}).");
+    Check(mainRiver.All(i => world.Surface.DrainageReceiver[i] < 0 || world.Surface.MainRiverChannel[world.Surface.DrainageReceiver[i]] || world.Surface.Ocean[world.Surface.DrainageReceiver[i]]), $"{style}/{seed} principal river is disconnected.");
     Check(mainRiver.Max(i => world.Surface.WaterDepth[i]) >= 3.5f, $"{style}/{seed} principal river is not deep enough.");
     Check(world.Surface.RiverChannel.Count(x => x) <= mainRiver.Length * 4, $"{style}/{seed} produced too many tributary cells.");
     Check(report.CaveComponents == 1, $"{style}/{seed} retained disconnected cave components.");

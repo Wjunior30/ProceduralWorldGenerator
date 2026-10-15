@@ -1,6 +1,6 @@
 namespace ProceduralWorld.Core;
 
-public sealed class TerrainGenerator
+public sealed partial class TerrainGenerator
 {
     private readonly WorldSettings _settings;
     private readonly ulong _seed;
@@ -25,6 +25,7 @@ public sealed class TerrainGenerator
     {
         var map = new SurfaceMap(_settings.Size, _settings.CellSize);
         int n = map.Size;
+        if (IsIsland) PrepareIsland(map);
         Parallel.For(0, n, z =>
         {
             for (int x = 0; x < n; x++)
@@ -50,6 +51,7 @@ public sealed class TerrainGenerator
                 double hardness = Math.Max(.12, Math.Min(.98, profile.Hardness + featureB * .08));
                 double h = FormHeight(_settings.TerrainStyle, continent, region, ridge, fault, plateauNoise, basin, detail, featureA, featureB, hardness);
                 h += SignatureRelief(_settings.TerrainStyle, px, pz, (n - 1) * map.CellSize);
+                if (IsIsland) h = IslandHeight(h, px, pz, (n - 1) * map.CellSize, featureA, featureB);
                 int i = map.Index(x, z);
                 map.Height[i] = (float)Math.Max(4, h);
                 map.Ridge[i] = (float)ridge;
@@ -59,6 +61,7 @@ public sealed class TerrainGenerator
                 map.Strata[i] = (float)strata;
             }
         });
+        if (IsIsland) CarveIslandRiver(map);
 
         double massBeforeErosion = map.Height.Sum(x => (double)x);
         Erosion.ApplyThermal(map, _settings.ErosionIterations, _settings.ErosionStrength, _settings.TerrainStyle);
@@ -80,6 +83,7 @@ public sealed class TerrainGenerator
         float maximumApex = _settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f;
         Erosion.RelaxSlopes(map, maximumGradient, 140);
         Erosion.SuppressIsolatedApexes(map, maximumApex, 12);
+        if (IsIsland) FlattenSites(map); // after erosion so the sites stay level
         Hydrology.Apply(map, _settings);
         map.ErosionMassDelta = map.Height.Sum(x => (double)x) - massBeforeErosion;
         CalculateSlopes(map);
@@ -292,6 +296,7 @@ public sealed class TerrainGenerator
             else map.Biomes[i] = Biome.Grassland;
         }
         MarkBeaches(map);
+        if (IsIsland) { ApplyIslandBiomes(map); BuildRoads(map); return; }
         ApplyBiomeQuotas(map);
         ApplyBiomeSelection(map);
     }

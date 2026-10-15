@@ -13,6 +13,7 @@ public sealed class NavigationGrid
         var cost = new float[map.Height.Length];
         for (int i = 0; i < cost.Length; i++)
         {
+            if (map.Road[i]) { cost[i] = .35f; continue; } // roads (and their bridges) are the preferred way
             float slope = map.Slope[i];
             if (map.WaterDepth[i] > 0 || slope > maxSlope) { cost[i] = float.PositiveInfinity; continue; }
             float biome = map.Biomes[i] switch
@@ -32,17 +33,39 @@ public sealed class NavigationGrid
     {
         int start = startZ * Size + startX, goal = goalZ * Size + goalX;
         if (!float.IsFinite(Cost[start]) || !float.IsFinite(Cost[goal])) return null;
-        var g = new Dictionary<int, float> { [start] = 0 };
-        var parent = new Dictionary<int, int>();
-        var open = new SortedSet<(float F, int Cell)> { (Heuristic(start, goal), start) };
-        int expanded = 0;
-        while (open.Count > 0 && expanded++ < maxExpanded)
+        // Array-based A* with a binary heap and generation stamps: no per-search allocation of the grid.
+        int count = Cost.Length;
+        if (_g == null || _g.Length != count) { _g = new float[count]; _parent = new int[count]; _stamp = new int[count]; _closed = new int[count]; }
+        int stamp = ++_search;
+        var heap = new List<(float F, int Cell)>();
+        void Push(float f, int cell)
         {
-            var (_, cell) = open.Min; open.Remove(open.Min);
+            heap.Add((f, cell)); int i = heap.Count - 1;
+            while (i > 0) { int p = (i - 1) / 2; if (heap[p].F <= heap[i].F) break; (heap[p], heap[i]) = (heap[i], heap[p]); i = p; }
+        }
+        (float F, int Cell) Pop()
+        {
+            var top = heap[0]; heap[0] = heap[heap.Count - 1]; heap.RemoveAt(heap.Count - 1); int i = 0;
+            while (true)
+            {
+                int l = i * 2 + 1, r = l + 1, m = i;
+                if (l < heap.Count && heap[l].F < heap[m].F) m = l;
+                if (r < heap.Count && heap[r].F < heap[m].F) m = r;
+                if (m == i) break; (heap[m], heap[i]) = (heap[i], heap[m]); i = m;
+            }
+            return top;
+        }
+        _stamp[start] = stamp; _g[start] = 0; _parent[start] = -1; Push(Heuristic(start, goal), start);
+        int expanded = 0;
+        while (heap.Count > 0 && expanded++ < maxExpanded)
+        {
+            int cell = Pop().Cell;
+            if (_closed[cell] == stamp) continue;
+            _closed[cell] = stamp;
             if (cell == goal)
             {
                 var path = new List<(int, int)>();
-                for (int c = goal; ; c = parent[c]) { path.Add((c % Size, c / Size)); if (c == start) break; }
+                for (int c = goal; c >= 0; c = _parent[c]) path.Add((c % Size, c / Size));
                 path.Reverse(); return path;
             }
             int x = cell % Size, z = cell / Size;
@@ -52,17 +75,16 @@ public sealed class NavigationGrid
                 int nx = x + dx, nz = z + dz;
                 if (nx < 0 || nz < 0 || nx >= Size || nz >= Size) continue;
                 int next = nz * Size + nx;
-                if (!float.IsFinite(Cost[next])) continue;
-                float step = (dx != 0 && dz != 0 ? 1.4142f : 1f) * (Cost[cell] + Cost[next]) * .5f;
-                float candidate = g[cell] + step;
-                if (g.TryGetValue(next, out float known) && known <= candidate) continue;
-                if (g.ContainsKey(next)) open.Remove((known + Heuristic(next, goal), next));
-                g[next] = candidate; parent[next] = cell;
-                open.Add((candidate + Heuristic(next, goal), next));
+                if (!float.IsFinite(Cost[next]) || _closed[next] == stamp) continue;
+                float candidate = _g[cell] + (dx != 0 && dz != 0 ? 1.4142f : 1f) * (Cost[cell] + Cost[next]) * .5f;
+                if (_stamp[next] == stamp && _g[next] <= candidate) continue;
+                _stamp[next] = stamp; _g[next] = candidate; _parent[next] = cell;
+                Push(candidate + Heuristic(next, goal) * .35f, next); // road cost is .35, keep the heuristic admissible
             }
         }
         return null;
     }
+    private float[]? _g; private int[]? _parent, _stamp, _closed; private int _search;
 
     private float Heuristic(int a, int b) { int dx = Math.Abs(a % Size - b % Size), dz = Math.Abs(a / Size - b / Size); return Math.Max(dx, dz) + .4142f * Math.Min(dx, dz); }
 }

@@ -25,6 +25,8 @@ static class WorldRender
             shade[i] = Math.Clamp(.35f + .8f * System.Numerics.Vector3.Dot(normal, System.Numerics.Vector3.Normalize(new(-1, 1.2f, -1))), .15f, 1.25f);
             var c = Colors[map.Biomes[i]];
             if (map.WaterDepth[i] > 0) { float d = Math.Min(1, map.WaterDepth[i] / 4); c = ((int)(46 - 20 * d), (int)(120 - 40 * d), (int)(196 - 30 * d)); shade[i] = 1; }
+            if (map.Road[i]) { c = (160, 122, 78); shade[i] = 1; }
+            foreach (var site in map.Sites) if (Math.Abs(x - site.X) <= 1 && Math.Abs(z - site.Z) <= 1) { c = (220, 40, 40); shade[i] = 1; }
             color[i] = (c.R, c.G, c.B);
         }
         (float R, float G, float B) Pixel(float fx, float fz)

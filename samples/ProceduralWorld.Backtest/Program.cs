@@ -69,7 +69,9 @@ static BacktestResult Analyze(TerrainStyle style, long seed, WorldSettings setti
     double mean = map.Height.Average(x => (double)x);
     double stdDev = Math.Sqrt(map.Height.Average(x => (x - mean) * (x - mean)));
     double riverCoverage = map.RiverChannel.Count(x => x) / (double)map.Height.Length;
-    double waterCoverage = map.WaterDepth.Count(x => x > .01f) / (double)map.Height.Length;
+    // Inland water only: the sea around an island is not river or lake coverage.
+    int landCells = Math.Max(1, map.Ocean.Count(o => !o));
+    double waterCoverage = Enumerable.Range(0, map.Height.Length).Count(i => !map.Ocean[i] && map.WaterDepth[i] > .01f) / (double)landCells;
     var issues = new List<string>();
     double score = 100;
     (double minimumFlat, double maximumSteep) = style switch

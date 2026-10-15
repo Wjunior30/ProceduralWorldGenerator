@@ -44,7 +44,8 @@ public static class TerrainDiagnostics
             {
                 double sourceWater = map.Height[i] + map.WaterDepth[i];
                 double receiverWater = map.Height[receiver] + map.WaterDepth[receiver];
-                bool discontinuous = !map.RiverChannel[receiver] || map.Flow[receiver] + .001f < map.Flow[i];
+                bool mouth = map.Ocean[receiver]; // a river may end where it enters the sea
+                bool discontinuous = !mouth && (!map.RiverChannel[receiver] || map.Flow[receiver] + .001f < map.Flow[i]);
                 bool uphill = receiverWater > sourceWater + .01;
                 if (discontinuous || uphill) broken++;
                 if (uphill) uphillRiver++;
