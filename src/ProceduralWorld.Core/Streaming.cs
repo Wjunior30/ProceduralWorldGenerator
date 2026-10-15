@@ -8,8 +8,10 @@ public sealed class StreamingSettings
 {
     public int ChunkSize { get; set; } = 256;
     public int LoadRadius { get; set; } = 3;
-    public int HighDetailRadius { get; set; } = 1;
+    public int HighDetailRadius { get; set; } = 2;
     public int CollisionRadius { get; set; } = 1;
+    /// <summary>Rings beyond LoadRadius up to this radius are planned as Horizon impostors; at or below LoadRadius disables them.</summary>
+    public int HorizonRadius { get; set; }
     public int MediumStep { get; set; } = 8;
     public int LowStep { get; set; } = 16;
     public int HorizonStep { get; set; } = 64;
@@ -21,11 +23,19 @@ public sealed class StreamingPlanner
     {
         int cx = (int)Math.Floor(worldX / settings.ChunkSize), cz = (int)Math.Floor(worldZ / settings.ChunkSize);
         var requests = new List<ChunkRequest>();
-        for (int dz = -settings.LoadRadius; dz <= settings.LoadRadius; dz++) for (int dx = -settings.LoadRadius; dx <= settings.LoadRadius; dx++)
+        int radius = Math.Max(settings.LoadRadius, settings.HorizonRadius);
+        for (int dz = -radius; dz <= radius; dz++) for (int dx = -radius; dx <= radius; dx++)
         {
             int ring = Math.Max(Math.Abs(dx), Math.Abs(dz));
-            ChunkDetail detail = ring <= settings.CollisionRadius ? ChunkDetail.Collision : ring <= settings.HighDetailRadius ? ChunkDetail.High : ring < settings.LoadRadius ? ChunkDetail.Medium : ChunkDetail.Low;
-            int step = detail is ChunkDetail.Collision or ChunkDetail.High ? 1 : detail == ChunkDetail.Medium ? settings.MediumStep : settings.LowStep;
+            ChunkDetail detail = ring <= settings.CollisionRadius ? ChunkDetail.Collision : ring <= settings.HighDetailRadius ? ChunkDetail.High
+                : ring < settings.LoadRadius ? ChunkDetail.Medium : ring == settings.LoadRadius ? ChunkDetail.Low : ChunkDetail.Horizon;
+            int step = detail switch
+            {
+                ChunkDetail.Collision or ChunkDetail.High => 1,
+                ChunkDetail.Medium => settings.MediumStep,
+                ChunkDetail.Low => settings.LowStep,
+                _ => settings.HorizonStep,
+            };
             requests.Add(new(new(cx + dx, cz + dz), detail, step, ring <= settings.CollisionRadius));
         }
         return requests.OrderBy(x => Math.Max(Math.Abs(x.Coordinate.X - cx), Math.Abs(x.Coordinate.Z - cz))).ThenBy(x => x.Coordinate.Z).ThenBy(x => x.Coordinate.X).ToArray();

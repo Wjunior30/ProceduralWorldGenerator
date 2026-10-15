@@ -28,11 +28,14 @@ public static class FrameworkPreviewBuilder
         var settings=TerrainPresetCatalog.Create((TerrainStyle)Enum.Parse(typeof(TerrainStyle),config.style,true),config.size);
         settings.MountainHeight=config.mountainHeight;settings.ReliefStrength=config.reliefStrength;settings.ErosionIterations=config.erosionIterations;
         settings.RiverWidthMultiplier=config.riverWidth;settings.CaveDensity=config.caveDensity;settings.BiomeRegionScale=config.biomeScale;
+        if(config.mainRiverWidth>0)settings.MainRiverWidth=config.mainRiverWidth;if(config.mainRiverDepth>0)settings.MainRiverDepth=config.mainRiverDepth;
+        if(config.tributaryThresholdMultiplier>0)settings.TributaryThresholdMultiplier=config.tributaryThresholdMultiplier;
+        if(config.lagoonCount>=0)settings.LagoonCount=config.lagoonCount;if(config.lagoonDepth>0)settings.LagoonDepth=config.lagoonDepth;
         settings.WaterMode=(WaterMode)Enum.Parse(typeof(WaterMode),config.waterMode,true);
         if(config.enabledBiomes!=null && config.enabledBiomes.Length>0)settings.EnabledBiomes=Array.ConvertAll(config.enabledBiomes,x=>(Biome)Enum.Parse(typeof(Biome),x,true));
         var world=new WorldGenerator(config.seed,settings).Generate();
         var map=world.Surface;
-        var data=new ProceduralWorldData {size=map.Size,cellSize=map.CellSize,height=map.Height,waterDepth=map.WaterDepth,flow=map.Flow,drainageReceiver=map.DrainageReceiver,riverChannel=map.RiverChannel,biomes=Array.ConvertAll(map.Biomes,x=>(int)x),minimumHeight=float.MaxValue,maximumHeight=float.MinValue,fingerprint=world.Fingerprint().ToString("X16")};
+        var data=new ProceduralWorldData {size=map.Size,cellSize=map.CellSize,height=map.Height,waterDepth=map.WaterDepth,flow=map.Flow,drainageReceiver=map.DrainageReceiver,riverChannel=map.RiverChannel,mainRiverChannel=map.MainRiverChannel,biomes=Array.ConvertAll(map.Biomes,x=>(int)x),minimumHeight=float.MaxValue,maximumHeight=float.MinValue,fingerprint=world.Fingerprint().ToString("X16")};
         foreach(float h in map.Height){data.minimumHeight=Math.Min(data.minimumHeight,h);data.maximumHeight=Math.Max(data.maximumHeight,h);}
         File.WriteAllText(DataPath,JsonUtility.ToJson(data));
         AssetDatabase.Refresh();
@@ -50,7 +53,7 @@ public static class FrameworkPreviewBuilder
         Directory.CreateDirectory("Assets/Scenes");
         AssetDatabase.Refresh();
         var map=new SurfaceMap(data.size,data.cellSize);
-        Array.Copy(data.height,map.Height,data.height.Length);Array.Copy(data.flow,map.Flow,data.flow.Length);Array.Copy(data.drainageReceiver,map.DrainageReceiver,data.drainageReceiver.Length);Array.Copy(data.riverChannel,map.RiverChannel,data.riverChannel.Length);
+        Array.Copy(data.height,map.Height,data.height.Length);Array.Copy(data.waterDepth,map.WaterDepth,data.waterDepth.Length);Array.Copy(data.flow,map.Flow,data.flow.Length);Array.Copy(data.drainageReceiver,map.DrainageReceiver,data.drainageReceiver.Length);Array.Copy(data.riverChannel,map.RiverChannel,data.riverChannel.Length);if(data.mainRiverChannel!=null&&data.mainRiverChannel.Length==data.height.Length)Array.Copy(data.mainRiverChannel,map.MainRiverChannel,data.mainRiverChannel.Length);
         var field=new RiverSurfaceField(map);
         float extent=(data.size-1)*data.cellSize, half=extent*.5f, baseElevation=data.minimumHeight-32,range=Math.Max(.01f,data.maximumHeight-baseElevation);
         int fineSize=(data.size-1)*4+1;
@@ -76,16 +79,16 @@ public static class FrameworkPreviewBuilder
         terrainData.SetAlphamaps(0,0,alpha);Save(terrainData,"Terrain.asset");
         var terrainObject=Terrain.CreateTerrainGameObject(terrainData);terrainObject.name="Framework Terrain";
         terrainObject.transform.position=new Vector3(-half,baseElevation,-half);
-        var terrain=terrainObject.GetComponent<Terrain>();terrain.heightmapPixelError=2;terrain.basemapDistance=5000;terrain.drawInstanced=true;
+        var terrain=terrainObject.GetComponent<Terrain>();terrain.heightmapPixelError=6;terrain.basemapDistance=1200;terrain.drawInstanced=true;
         var terrainMaterial=new Material(Shader.Find("Nature/Terrain/Standard"));Save(terrainMaterial,"TerrainMaterial.mat");terrain.materialTemplate=terrainMaterial;
         BuildWater(field);
-        var sun=new GameObject("Daylight").AddComponent<Light>();sun.type=LightType.Directional;sun.color=Hex("fff0d5");sun.intensity=1.15f;sun.transform.rotation=Quaternion.Euler(34,-42,0);sun.shadows=LightShadows.Soft;
+        var sun=new GameObject("Daylight").AddComponent<Light>();sun.type=LightType.Directional;sun.color=Hex("fff0d5");sun.intensity=1.15f;sun.transform.rotation=Quaternion.Euler(34,-42,0);sun.shadows=LightShadows.Hard;
         var sky=new Material(Shader.Find("Skybox/Procedural"));sky.SetColor("_SkyTint",Hex("759cb5"));sky.SetColor("_GroundColor",Hex("6e806d"));sky.SetFloat("_AtmosphereThickness",.8f);Save(sky,"Sky.mat");
         RenderSettings.skybox=sky;RenderSettings.sun=sun;RenderSettings.ambientMode=UnityEngine.Rendering.AmbientMode.Trilight;
         RenderSettings.ambientSkyColor=Hex("a5c3d1")*.7f;RenderSettings.ambientEquatorColor=Hex("849b88")*.6f;RenderSettings.ambientGroundColor=Hex("4a5e48")*.5f;
         RenderSettings.fog=true;RenderSettings.fogMode=FogMode.ExponentialSquared;RenderSettings.fogColor=Hex("bfd2d3");RenderSettings.fogDensity=.00032f;
-        QualitySettings.antiAliasing=4;QualitySettings.shadowDistance=700;
-        var camera=new GameObject("Preview Camera").AddComponent<Camera>();camera.tag="MainCamera";camera.nearClipPlane=.15f;camera.farClipPlane=10000;camera.fieldOfView=60;camera.allowHDR=true;
+        QualitySettings.antiAliasing=2;QualitySettings.shadowDistance=320;QualitySettings.shadowCascades=2;QualitySettings.shadowResolution=ShadowResolution.Medium;
+        var camera=new GameObject("Preview Camera").AddComponent<Camera>();camera.tag="MainCamera";camera.nearClipPlane=.15f;camera.farClipPlane=4000;camera.fieldOfView=60;camera.allowHDR=false;
         var fly=camera.gameObject.AddComponent<PreviewFlyCamera>();
         fly.overviewPosition=new Vector3(-extent*.48f,data.maximumHeight+extent*.35f,-extent*.48f);
         fly.overviewEuler=Quaternion.LookRotation(new Vector3(0,data.minimumHeight+range*.30f,0)-fly.overviewPosition).eulerAngles;
@@ -113,7 +116,8 @@ public static class FrameworkPreviewBuilder
     [Serializable] private sealed class ExportSettings {
         public int seed, size, erosionIterations;
         public string style, waterMode;
-        public float mountainHeight, reliefStrength, riverWidth, caveDensity, biomeScale;
+        public float mountainHeight, reliefStrength, riverWidth, caveDensity, biomeScale, mainRiverWidth, mainRiverDepth, tributaryThresholdMultiplier, lagoonDepth;
+        public int lagoonCount=-1;
         public string[] enabledBiomes;
     }
     static void Save(Object asset,string file) {string path=Generated+"/"+file;if(AssetDatabase.LoadMainAssetAtPath(path)!=null)AssetDatabase.DeleteAsset(path);AssetDatabase.CreateAsset(asset,path);}
@@ -124,22 +128,24 @@ public static class FrameworkPreviewBuilder
     }
     struct WetVertex { public Vector3 p; public Color c; public float depth; }
     static void BuildWater(RiverSurfaceField field) {
-        var vertices=new List<Vector3>();var colors=new List<Color>();var indices=new List<int>();
+        const int subdivisions=2;
+        float meshStep=field.CellSize/subdivisions;
+        var vertices=new List<Vector3>();var colors=new List<Color>();var indices=new List<int>();var shared=new Dictionary<Vector3,int>();
         Func<float,float,WetVertex> sample=(x,z)=>{
             var s=field.Sample(x,z);
             return new WetVertex{p=new Vector3(x,s.Surface+.018f,z),depth=s.Depth,c=new Color(.5f+s.Velocity.X/3.2f*.49f,.5f+s.Velocity.Y/3.2f*.49f,Mathf.Clamp01(s.Depth/3.35f),s.Rapids)};
         };
-        foreach(var cell in field.RefinedCells)for(int z=0;z<4;z++)for(int x=0;x<4;x++){
-            float px=cell.X*field.CellSize-field.HalfExtent+x*field.Step,pz=cell.Z*field.CellSize-field.HalfExtent+z*field.Step;
-            var a=sample(px,pz);var b=sample(px+field.Step,pz);var c=sample(px,pz+field.Step);var d=sample(px+field.Step,pz+field.Step);
-            Clip(new[]{a,c,b},vertices,colors,indices);Clip(new[]{b,c,d},vertices,colors,indices);
+        foreach(var cell in field.RefinedCells)for(int z=0;z<subdivisions;z++)for(int x=0;x<subdivisions;x++){
+            float px=cell.X*field.CellSize-field.HalfExtent+x*meshStep,pz=cell.Z*field.CellSize-field.HalfExtent+z*meshStep;
+            var a=sample(px,pz);var b=sample(px+meshStep,pz);var c=sample(px,pz+meshStep);var d=sample(px+meshStep,pz+meshStep);
+            Clip(new[]{a,c,b},vertices,colors,indices,shared);Clip(new[]{b,c,d},vertices,colors,indices,shared);
         }
         if(vertices.Count==0)return;
         var mesh=new Mesh{name="Framework River Surface",indexFormat=UnityEngine.Rendering.IndexFormat.UInt32};mesh.SetVertices(vertices);mesh.SetColors(colors);mesh.SetTriangles(indices,0);
         var normals=new Vector3[vertices.Count];var tangents=new Vector4[vertices.Count];for(int i=0;i<tangents.Length;i++){normals[i]=Vector3.up;tangents[i]=new Vector4(1,0,0,1);}mesh.normals=normals;mesh.tangents=tangents;mesh.RecalculateBounds();Save(mesh,"Rivers.asset");
         var material=new Material(Shader.Find("ProceduralWorld/RiverPreview"));Save(material,"River.mat");
         var go=new GameObject("Framework Rivers");go.AddComponent<MeshFilter>().sharedMesh=mesh;var renderer=go.AddComponent<MeshRenderer>();renderer.sharedMaterial=material;renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;
-        Debug.Log("FRAMEWORK_WATER_TRIANGLES="+indices.Count/3);
+        Debug.Log("FRAMEWORK_WATER_TRIANGLES="+indices.Count/3+" VERTICES="+vertices.Count);
     }
     static Color GroundColor(ProceduralWorldData data,float x,float z) {
         int ix=Mathf.Clamp(Mathf.FloorToInt(x),0,data.size-2),iz=Mathf.Clamp(Mathf.FloorToInt(z),0,data.size-2);
@@ -147,9 +153,11 @@ public static class FrameworkPreviewBuilder
         Func<int,Color> color=i=>data.biomes[i]<=2?Hex("6e8963"):Palette[Mathf.Clamp(data.biomes[i],0,Palette.Length-1)];
         return Color.Lerp(Color.Lerp(color(iz*data.size+ix),color(iz*data.size+ix+1),u),Color.Lerp(color((iz+1)*data.size+ix),color((iz+1)*data.size+ix+1),u),v);
     }
-    static void Clip(WetVertex[] input,List<Vector3> vertices,List<Color> colors,List<int> indices) {
+    static void Clip(WetVertex[] input,List<Vector3> vertices,List<Color> colors,List<int> indices,Dictionary<Vector3,int> shared) {
         var polygon=new List<WetVertex>();for(int i=0;i<3;i++){var a=input[(i+2)%3];var b=input[i];bool ai=a.depth>.025f,bi=b.depth>.025f;if(ai!=bi){float t=(.025f-a.depth)/(b.depth-a.depth);polygon.Add(new WetVertex{p=Vector3.Lerp(a.p,b.p,t),c=Color.Lerp(a.c,b.c,t),depth=.025f});}if(bi)polygon.Add(b);}
-        for(int i=1;i<polygon.Count-1;i++)foreach(var v in new[]{polygon[0],polygon[i],polygon[i+1]}){indices.Add(vertices.Count);vertices.Add(v.p);colors.Add(v.c);}
+        for(int i=1;i<polygon.Count-1;i++)foreach(var v in new[]{polygon[0],polygon[i],polygon[i+1]}){
+            if(!shared.TryGetValue(v.p,out int index)){index=vertices.Count;shared.Add(v.p,index);vertices.Add(v.p);colors.Add(v.c);}indices.Add(index);
+        }
     }
     static void Capture(Camera camera,string name) {
         var target=new RenderTexture(1600,900,24);camera.targetTexture=target;camera.Render();var previous=RenderTexture.active;RenderTexture.active=target;

@@ -8,6 +8,9 @@ using UnityEngine;
 public static class ThirdPersonValidation
 {
     static int stage=-1, frames;
+    static float performanceStartTime;
+    static bool savedRunInBackground;
+    static int savedVSyncCount, savedTargetFrameRate;
     static float startY, maxY;
     static Vector3 start, swimStart;
     static ThirdPersonExplorer player;
@@ -17,7 +20,7 @@ public static class ThirdPersonValidation
     static void Tick()
     {
         if(!EditorApplication.isPlaying){stage=-1;return;}
-        if(stage<0){if(!SessionState.GetBool("ThirdPerson.Validate",false))return;player=UnityEngine.Object.FindFirstObjectByType<ThirdPersonExplorer>();if(player==null||player.Water==null)return;SessionState.SetBool("ThirdPerson.Validate",false);player.externalControl=true;stage=0;frames=0;report="";}
+        if(stage<0){if(!SessionState.GetBool("ThirdPerson.Validate",false))return;player=UnityEngine.Object.FindFirstObjectByType<ThirdPersonExplorer>();if(player==null||player.Water==null)return;SessionState.SetBool("ThirdPerson.Validate",false);savedRunInBackground=Application.runInBackground;savedVSyncCount=QualitySettings.vSyncCount;savedTargetFrameRate=Application.targetFrameRate;Application.runInBackground=true;QualitySettings.vSyncCount=0;Application.targetFrameRate=-1;player.externalControl=true;stage=0;frames=0;report="";}
         try {
             const float dt=1f/60;
             switch(stage){
@@ -60,11 +63,17 @@ public static class ThirdPersonValidation
                     orbit.ApplyMouseDelta(new Vector2(0,1000));Check(orbit.pitch==-12,"Camera upward angle is limited");
                     orbit.ApplyMouseDelta(new Vector2(0,-1000));Check(orbit.pitch==70,"Camera downward angle is limited");
                     orbit.yaw=savedYaw;orbit.pitch=savedPitch;orbit.Snap();orbit.UpdatePose(1);
-                    Capture();File.WriteAllText(Path.Combine(Application.dataPath,"../Artifacts/third-person-validation.txt"),report);Debug.Log("THIRD_PERSON_VALIDATED\n"+report);player.externalControl=false;stage=5;
-                    var type=typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView");if(type!=null)EditorWindow.GetWindow(type).Show();break;
+                    var type=typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView");if(type!=null)EditorWindow.GetWindow(type).Show();
+                    frames=0;performanceStartTime=Time.realtimeSinceStartup;stage=5;break;
+                case 5:
+                    if(++frames<180)return;
+                    float elapsed=Mathf.Max(.001f,Time.realtimeSinceStartup-performanceStartTime);
+                    report+="METRIC: "+(frames/elapsed).ToString("F1")+" play-loop updates/s over "+frames+" updates\n";
+                    Capture();File.WriteAllText(Path.Combine(Application.dataPath,"../Artifacts/third-person-validation.txt"),report);Debug.Log("THIRD_PERSON_VALIDATED\n"+report);player.externalControl=false;RestorePerformanceSettings();stage=6;break;
             }
-        } catch(Exception error){if(player!=null){player.externalControl=false;player.Teleport(player.spawnPoint);}File.WriteAllText(Path.Combine(Application.dataPath,"../Artifacts/third-person-validation.txt"),report+"FAIL: "+error);Debug.LogException(error);stage=5;}
+        } catch(Exception error){if(player!=null){player.externalControl=false;player.Teleport(player.spawnPoint);}RestorePerformanceSettings();File.WriteAllText(Path.Combine(Application.dataPath,"../Artifacts/third-person-validation.txt"),report+"FAIL: "+error);Debug.LogException(error);stage=6;}
     }
+    static void RestorePerformanceSettings(){Application.runInBackground=savedRunInBackground;QualitySettings.vSyncCount=savedVSyncCount;Application.targetFrameRate=savedTargetFrameRate;}
     static void Capture(){var camera=Camera.main;var target=new RenderTexture(1600,900,24);var previousTarget=camera.targetTexture;var previous=RenderTexture.active;camera.targetTexture=target;camera.Render();RenderTexture.active=target;var image=new Texture2D(1600,900,TextureFormat.RGB24,false);image.ReadPixels(new Rect(0,0,1600,900),0,0);image.Apply();File.WriteAllBytes(Path.Combine(Application.dataPath,"../Artifacts/unity-third-person.png"),image.EncodeToPNG());camera.targetTexture=previousTarget;RenderTexture.active=previous;target.Release();UnityEngine.Object.DestroyImmediate(target);UnityEngine.Object.DestroyImmediate(image);}
 }
 

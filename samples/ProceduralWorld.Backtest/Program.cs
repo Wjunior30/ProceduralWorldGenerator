@@ -86,7 +86,7 @@ static BacktestResult Analyze(TerrainStyle style, long seed, WorldSettings setti
     Penalize(settings.WaterMode != WaterMode.None && riverCoverage < .001, 10, $"rede fluvial quase ausente ({riverCoverage:P2})");
     Penalize(waterCoverage > .24, Math.Min(10, (waterCoverage - .24) * 35), $"água cobre área excessiva ({waterCoverage:P1})");
     Penalize(report.BiomeComponents > map.Height.Length * .055, Math.Min(12, (report.BiomeComponents / (double)map.Height.Length - .055) * 80), $"biomas fragmentados em {report.BiomeComponents} regiões");
-    Penalize(report.DrainageOutlets < 2 || report.DrainageOutlets > 12, 8, $"quantidade de saídas fluviais fora do esperado ({report.DrainageOutlets})");
+    Penalize(report.DrainageOutlets != 1, 8, $"a bacia principal exige uma saída fluvial ({report.DrainageOutlets})");
     Penalize(report.ErosionMassRelativeError >= 1e-5, 20, $"erosão não conservou massa ({report.ErosionMassRelativeError:E2})");
     Penalize(report.BasinCount != report.DrainageOutlets, 10, $"{report.BasinCount} bacias para {report.DrainageOutlets} saídas");
     Penalize(report.CaveComponents != 1, 20, $"{report.CaveComponents} componentes subterrâneos desconectados");

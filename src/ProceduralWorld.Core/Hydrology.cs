@@ -15,22 +15,30 @@ internal static class Hydrology
         Array.Clear(map.Flow, 0, map.Flow.Length);
         Array.Clear(map.WaterDepth, 0, map.WaterDepth.Length);
         Array.Clear(map.RiverChannel, 0, map.RiverChannel.Length);
+        Array.Clear(map.MainRiverChannel, 0, map.MainRiverChannel.Length);
+        Array.Clear(map.LagoonBasin, 0, map.LagoonBasin.Length);
+        Array.Clear(map.LagoonSurface, 0, map.LagoonSurface.Length);
         Array.Fill(map.DrainageReceiver, -1);
         if (settings.WaterMode == WaterMode.None) return;
         double targetMass = map.Height.Sum(x => (double)x);
         bool preserveLakes = settings.WaterMode == WaterMode.RiversAndLakes;
 
         DrainageSolution first = Solve(map);
+        MarkMainRiver(map, first);
         MarkChannels(map, settings);
         CarveChannels(map, settings, first);
 
+        if (preserveLakes && settings.LagoonCount > 0)
+            CarveLagoons(map, settings);
+
         DrainageSolution second = Solve(map);
-        if (!preserveLakes) FillClosedDepressions(map, second);
+        FillClosedDepressions(map, second, preserveLakes);
         Erosion.RelaxSlopes(map, .90f, 32);
         DrainageSolution settled = Solve(map);
-        if (!preserveLakes) FillClosedDepressions(map, settled);
+        FillClosedDepressions(map, settled, preserveLakes);
         Erosion.LimitExtremeSteps(map, map.CellSize * 1.80f, 24);
         DrainageSolution final = Solve(map);
+        MarkMainRiver(map, final);
         MarkChannels(map, settings);
         AssignWater(map, settings, final);
         ClassifyBasinsAndStreams(map, final);
@@ -117,19 +125,8 @@ internal static class Hydrology
         for (int z = 1; z < n; z++) boundary.Add(map.Index(n - 1, z));
         for (int x = n - 2; x >= 0; x--) boundary.Add(map.Index(x, n - 1));
         for (int z = n - 2; z > 0; z--) boundary.Add(map.Index(0, z));
-        int wanted = Math.Max(4, Math.Min(8, 3 + n / 64));
-        int minimumSpacing = Math.Max(8, boundary.Count / (wanted * 2));
         var ranked = boundary.Select((cell, position) => (Cell: cell, Position: position, Height: map.Height[cell])).OrderBy(x => x.Height).ToArray();
-        var selected = new List<(int Cell, int Position)>();
-        foreach (var candidate in ranked)
-        {
-            bool separated = selected.All(item => CircularDistance(item.Position, candidate.Position, boundary.Count) >= minimumSpacing);
-            if (!separated) continue;
-            selected.Add((candidate.Cell, candidate.Position));
-            if (selected.Count == wanted) break;
-        }
-        if (selected.Count == 0) selected.Add((ranked[0].Cell, ranked[0].Position));
-        return selected.Select(x => x.Cell).ToArray();
+        return new[] { ranked[0].Cell };
     }
 
     private static int CircularDistance(int a, int b, int length)
@@ -141,7 +138,34 @@ internal static class Hydrology
     private static void MarkChannels(SurfaceMap map, WorldSettings settings)
     {
         Array.Clear(map.RiverChannel, 0, map.RiverChannel.Length);
-        for (int i = 0; i < map.Flow.Length; i++) map.RiverChannel[i] = map.Flow[i] >= settings.RiverThreshold;
+        float tributaryThreshold = settings.RiverThreshold * settings.TributaryThresholdMultiplier;
+        for (int i = 0; i < map.Flow.Length; i++)
+            map.RiverChannel[i] = map.MainRiverChannel[i] || (!map.LagoonBasin[i] && map.Flow[i] >= tributaryThreshold);
+    }
+
+    private static void MarkMainRiver(SurfaceMap map, DrainageSolution solution)
+    {
+        Array.Clear(map.MainRiverChannel, 0, map.MainRiverChannel.Length);
+        var distance = new float[map.Height.Length];
+        int source = solution.Order[0];
+        float longest = -1;
+        for (int o = 0; o < solution.Count; o++)
+        {
+            int cell = solution.Order[o], receiver = map.DrainageReceiver[cell];
+            if (receiver >= 0)
+            {
+                int dx = cell % map.Size - receiver % map.Size;
+                int dz = cell / map.Size - receiver / map.Size;
+                distance[cell] = distance[receiver] + map.CellSize * (dx != 0 && dz != 0 ? 1.41421356f : 1);
+            }
+            if (distance[cell] > longest) { longest = distance[cell]; source = cell; }
+        }
+        var seen = new bool[map.Height.Length];
+        for (int cell = source; cell >= 0 && !seen[cell]; cell = map.DrainageReceiver[cell])
+        {
+            seen[cell] = true;
+            map.MainRiverChannel[cell] = true;
+        }
     }
 
     private static void CarveChannels(SurfaceMap map, WorldSettings settings, DrainageSolution solution)
@@ -154,9 +178,12 @@ internal static class Hydrology
             if (!map.RiverChannel[i]) continue;
             int cx = i % n, cz = i / n;
             float discharge = map.Flow[i] / Math.Max(1, settings.RiverThreshold);
-            float depth = Math.Min(7, .7f + (float)Math.Log(1 + discharge, 2) * 1.15f);
+            bool main = map.MainRiverChannel[i];
+            float depth = main ? settings.MainRiverDepth : Math.Min(4, .55f + (float)Math.Log(1 + discharge, 2) * .75f);
             float bed = solution.Filled[i] - depth;
-            int radius = Math.Max(1, Math.Min(7, (int)Math.Round((1 + Math.Log(1 + discharge, 2) * .56) * settings.RiverWidthMultiplier)));
+            int radius = main
+                ? Math.Max(2, (int)Math.Ceiling(settings.MainRiverWidth / Math.Max(1, map.CellSize) * .5f))
+                : Math.Max(1, Math.Min(3, (int)Math.Round((.75 + Math.Log(1 + discharge, 2) * .35) * settings.RiverWidthMultiplier)));
             double outer = Math.Max(2, radius * 2.4);
             for (int dz = -(int)Math.Ceiling(outer); dz <= outer; dz++) for (int dx = -(int)Math.Ceiling(outer); dx <= outer; dx++)
             {
@@ -178,10 +205,46 @@ internal static class Hydrology
         }
     }
 
-    private static void FillClosedDepressions(SurfaceMap map, DrainageSolution solution)
+    private static void CarveLagoons(SurfaceMap map, WorldSettings settings)
+    {
+        int n = map.Size;
+        int radius = Math.Clamp(n / 32, 3, 7);
+        var candidates = Enumerable.Range(0, map.Height.Length)
+            .Where(i => i % n > radius * 2 && i % n < n - radius * 2 && i / n > radius * 2 && i / n < n - radius * 2)
+            .Where(i => !map.MainRiverChannel[i] && map.Slope[i] < .22f)
+            .OrderBy(i => map.Height[i] + map.Slope[i] * 80)
+            .ToArray();
+        var chosen = new List<int>();
+        foreach (int center in candidates)
+        {
+            int cx = center % n, cz = center / n;
+            if (chosen.Any(i => { int dx = i % n - cx, dz = i / n - cz; return dx * dx + dz * dz < radius * radius * 25; })) continue;
+            chosen.Add(center);
+            float rim = float.PositiveInfinity;
+            for (int dz = -radius - 1; dz <= radius + 1; dz++) for (int dx = -radius - 1; dx <= radius + 1; dx++)
+            {
+                float d = MathF.Sqrt(dx * dx + dz * dz);
+                if (d >= radius && d <= radius + 1.5f) rim = Math.Min(rim, map.Height[map.Index(cx + dx, cz + dz)]);
+            }
+            for (int dz = -radius; dz <= radius; dz++) for (int dx = -radius; dx <= radius; dx++)
+            {
+                float normalized = MathF.Sqrt(dx * dx + dz * dz) / radius;
+                if (normalized > 1) continue;
+                int cell = map.Index(cx + dx, cz + dz);
+                float bowl = settings.LagoonDepth * (1 - normalized * normalized);
+                map.Height[cell] = Math.Min(map.Height[cell], rim - bowl - .35f);
+                map.LagoonBasin[cell] = true;
+                map.LagoonSurface[cell] = rim - .35f;
+            }
+            if (chosen.Count >= settings.LagoonCount) break;
+        }
+    }
+
+    private static void FillClosedDepressions(SurfaceMap map, DrainageSolution solution, bool preserveLagoons)
     {
         for (int i = 0; i < map.Height.Length; i++)
         {
+            if (preserveLagoons && map.LagoonBasin[i]) continue;
             float deposit = solution.Filled[i] - map.Height[i];
             if (deposit <= .001f) continue;
             map.Height[i] = solution.Filled[i];
@@ -201,12 +264,24 @@ internal static class Hydrology
     {
         int n = map.Size;
         Array.Clear(map.WaterDepth, 0, map.WaterDepth.Length);
+        var channelSurface = new float[map.Height.Length];
+        for (int o = 0; o < solution.Count; o++)
+        {
+            int i = solution.Order[o];
+            if (!map.RiverChannel[i]) continue;
+            float minimumDepth = map.MainRiverChannel[i] ? settings.MainRiverDepth : .18f;
+            float surface = map.Height[i] + minimumDepth;
+            int receiver = map.DrainageReceiver[i];
+            if (receiver >= 0 && map.RiverChannel[receiver])
+                surface = Math.Max(surface, channelSurface[receiver]);
+            channelSurface[i] = surface;
+        }
         if (settings.WaterMode == WaterMode.RiversAndLakes)
         {
             for (int i = 0; i < map.Height.Length; i++)
             {
-                float lake = solution.Filled[i] - map.Height[i];
-                if (lake > .25f) map.WaterDepth[i] = lake;
+                float lake = Math.Min(settings.LagoonDepth, map.LagoonSurface[i] - map.Height[i]);
+                if (map.LagoonBasin[i] && lake > .25f) map.WaterDepth[i] = lake;
             }
         }
         for (int o = 0; o < solution.Count; o++)
@@ -215,8 +290,11 @@ internal static class Hydrology
             if (!map.RiverChannel[i]) continue;
             int cx = i % n, cz = i / n;
             float discharge = map.Flow[i] / Math.Max(1, settings.RiverThreshold);
-            int radius = Math.Max(1, Math.Min(7, (int)Math.Round((1 + Math.Log(1 + discharge, 2) * .56) * settings.RiverWidthMultiplier)));
-            float surface = solution.Filled[i] + .18f;
+            bool main = map.MainRiverChannel[i];
+            int radius = main
+                ? Math.Max(2, (int)Math.Ceiling(settings.MainRiverWidth / Math.Max(1, map.CellSize) * .5f))
+                : Math.Max(1, Math.Min(3, (int)Math.Round((.75 + Math.Log(1 + discharge, 2) * .35) * settings.RiverWidthMultiplier)));
+            float surface = channelSurface[i];
             double wetRadius = Math.Max(.75, radius * .78);
             int extent = (int)Math.Ceiling(wetRadius);
             for (int dz = -extent; dz <= extent; dz++) for (int dx = -extent; dx <= extent; dx++)
@@ -232,12 +310,20 @@ internal static class Hydrology
                 map.WaterDepth[j] = Math.Max(map.WaterDepth[j], localSurface - map.Height[j]);
                 map.Flow[j] = Math.Max(map.Flow[j], settings.RiverThreshold * edgeFalloff);
             }
-            map.WaterDepth[i] = Math.Max(.18f, surface - map.Height[i]);
+            map.WaterDepth[i] = surface - map.Height[i];
         }
         // Bank stamping can overlap a downstream core. Restore the exact
         // priority-flood surface on every channel cell so water never rises.
         for (int i = 0; i < map.Height.Length; i++)
-            if (map.RiverChannel[i]) map.WaterDepth[i] = Math.Max(.18f, solution.Filled[i] + .18f - map.Height[i]);
+            if (map.RiverChannel[i])
+            {
+                map.WaterDepth[i] = channelSurface[i] - map.Height[i];
+            }
+            else if (map.LagoonBasin[i])
+            {
+                map.WaterDepth[i] = Math.Max(0, Math.Min(settings.LagoonDepth, map.LagoonSurface[i] - map.Height[i]));
+            }
+            else map.WaterDepth[i] = 0;
     }
 
     private sealed class MinHeap

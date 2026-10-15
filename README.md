@@ -12,13 +12,13 @@ Gerador procedural para Unity, com núcleo de dados em .NET Standard 2.1. O adap
 
 - geração determinística de massas continentais, cadeias montanhosas, sopés, bacias, falhas e planaltos;
 - erosão térmica, acabamento fluvial e proteções contra degraus extremos;
-- drenagem por acumulação de fluxo, canais com largura variável e modos de rios e lagos;
+- uma bacia principal com rio largo atravessando o mapa, afluentes seletivos, canais profundos e lagoas profundas;
 - clima calculado com altitude, latitude, umidade e sombra de chuva;
 - cavernas volumétricas, entradas de superfície e uma representação implícita para adaptadores;
 - malhas com normais e níveis de detalhe para integração com engines;
 - backtest multiseed e diagnósticos de terreno, rios, biomas e cavernas.
 
-Esses sistemas formam uma base funcional e independente de engine. A geração v4 resolve a geologia antes do clima, conserva massa durante a erosão, recalcula a drenagem sobre o terreno final, controla as saídas de borda e mantém uma única rede subterrânea navegável. O realismo artístico continua evolutivo, mas os bloqueadores estruturais abaixo possuem validação automática multiseed e multirresolução.
+Esses sistemas formam uma base funcional e independente de engine. A geração v5 resolve a geologia antes do clima, conserva massa durante a erosão, recalcula a drenagem sobre o terreno final, concentra a água em uma bacia principal e mantém uma única rede subterrânea navegável. O realismo artístico continua evolutivo, mas os bloqueadores estruturais abaixo possuem validação automática multiseed e multirresolução.
 
 ## Estado da implementação v4
 
@@ -128,13 +128,15 @@ O Studio é uma ferramenta de autoria separada dos jogos. Ele consome `Procedura
 
 O botão **Criar na Unity** detecta o editor, permite revisar os arquivos e exporta um projeto independente com o [adaptador Unity](adapters/unity/README.md). A Unity constrói a cena na primeira importação; o personagem, a câmera orbital, o rio e os materiais já fazem parte do pacote.
 
-O Studio incorpora os recursos do adaptador e a DLL do núcleo, inclusive quando publicado. Os dados JSON, RAW16 e RAW8 permanecem disponíveis na pasta `ProceduralWorld`. O modo Rios e Lagos exporta todos os dados, mas avisa que a apresentação e a física do adaptador cobrem apenas rios.
+O Studio incorpora os recursos do adaptador e a DLL do núcleo, inclusive quando publicado. Os dados JSON, RAW16 e RAW8 permanecem disponíveis na pasta `ProceduralWorld`. O modo Rios e Lagos gera e apresenta tanto a rede fluvial quanto as lagoas, com superfície, profundidade e interação física na Unity.
 
 O núcleo não abre programas. O Studio só abre a Unity após a autorização na tela de criação. Pastas protegidas são rejeitadas e destinos existentes exigem a opção de substituição.
 
 ## Rios e exploração
 
-`RiverSurfaceField` fornece leito, superfície, profundidade e corrente a partir de um único campo refinado. `WaterPhysics` mantém utilitários de submersão, arrasto e empuxo. O adaptador utiliza Terrain nativo, água animada, personagem com caminhada/corrida/salto, câmera com colisão e mouse livre, natação e correnteza.
+`RiverSurfaceField` fornece leito, superfície, profundidade e corrente a partir de um único campo refinado. A hidrologia seleciona uma única saída principal, traça o curso mais longo até ela, mantém poucos afluentes e escava lagoas em áreas baixas e suaves. `WaterPhysics` mantém utilitários de submersão, arrasto e empuxo. O adaptador utiliza Terrain nativo, água animada, personagem com caminhada/corrida/salto, câmera com colisão e mouse livre, natação e correnteza.
+
+Na Unity, a física continua amostrando o campo refinado, enquanto a malha visual usa uma grade de 4 m com vértices compartilhados. O shader usa ondas analíticas, reduzindo geometria transparente e custo por pixel sem alterar o curso, a largura ou a profundidade da água.
 
 O jogo aprovado está em `../SimulationLife`, agora um projeto Unity. A antiga pasta de prévia permanece apenas como cópia de trabalho; o repositório do jogo é a referência principal.
 

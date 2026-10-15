@@ -16,7 +16,8 @@ public sealed class ThirdPersonExplorer : MonoBehaviour
     CharacterController motor;
     Transform model, leftArm, rightArm, leftLeg, rightLeg;
     Vector3 horizontal;
-    float vertical, phase, jumpBuffer, coyote;
+    float vertical, phase, jumpBuffer, coyote, fps=0, fpsTime=0;
+    int fpsFrames=0;
     bool instructions=true;
     Terrain terrain;
 
@@ -30,7 +31,7 @@ public sealed class ThirdPersonExplorer : MonoBehaviour
             var d=JsonUtility.FromJson<ProceduralWorldData>(File.ReadAllText(path));
             var map=new SurfaceMap(d.size,d.cellSize);
             Array.Copy(d.height,map.Height,d.height.Length); Array.Copy(d.flow,map.Flow,d.flow.Length);
-            Array.Copy(d.riverChannel,map.RiverChannel,d.riverChannel.Length); Array.Copy(d.drainageReceiver,map.DrainageReceiver,d.drainageReceiver.Length);
+            Array.Copy(d.waterDepth,map.WaterDepth,d.waterDepth.Length); Array.Copy(d.riverChannel,map.RiverChannel,d.riverChannel.Length); if(d.mainRiverChannel!=null&&d.mainRiverChannel.Length==d.height.Length)Array.Copy(d.mainRiverChannel,map.MainRiverChannel,d.mainRiverChannel.Length); Array.Copy(d.drainageReceiver,map.DrainageReceiver,d.drainageReceiver.Length);
             Water=new RiverSurfaceField(map);
         }
         BuildAvatar();
@@ -38,6 +39,8 @@ public sealed class ThirdPersonExplorer : MonoBehaviour
     void Start() { Debug.Log("THIRD_PERSON_READY | WASD, Shift correr, Espaco saltar, mouse camera, R retornar"); }
     void Update()
     {
+        fpsTime+=Time.unscaledDeltaTime;fpsFrames++;
+        if(fpsTime>=.5f){fps=fpsFrames/fpsTime;fpsTime=0;fpsFrames=0;}
         if(Input.GetKeyDown(KeyCode.F1))instructions=!instructions;
         if(externalControl)return;
         if(Input.GetKeyDown(KeyCode.R)){Teleport(spawnPoint);return;}
@@ -111,7 +114,7 @@ public sealed class ThirdPersonExplorer : MonoBehaviour
     {
         if(!instructions)return;
         GUI.Box(new Rect(18,18,700,102),"");
-        GUI.Label(new Rect(32,26,670,22),"EXPLORAR EM TERCEIRA PESSOA  |  "+(Swimming?"NADANDO • a correnteza carrega você":"EM TERRA • explore o mundo do framework"));
+        GUI.Label(new Rect(32,26,670,22),"EXPLORAR EM TERCEIRA PESSOA  |  "+(Swimming?"NADANDO • a correnteza carrega você":"EM TERRA • explore o mundo do framework")+"  |  "+fps.ToString("F0")+" FPS");
         GUI.Label(new Rect(32,50,670,22),"WASD mover • Shift correr • Espaço saltar • Mouse girar câmera (clique no jogo para ativar)");
         GUI.Label(new Rect(32,74,670,22),"R voltar ao início • Roda do mouse aproximar/afastar • Esc liberar mouse • Clique retomar • F1 ajuda");
     }

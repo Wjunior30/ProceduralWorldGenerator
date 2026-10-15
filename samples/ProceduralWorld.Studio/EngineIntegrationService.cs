@@ -20,7 +20,6 @@ public sealed class EngineIntegrationService
         ValidatedRequest valid = Validate(request, inspectExisting: true);
         EngineDescriptor engine = Discover().First(x => x.Id == valid.Engine);
         var warnings = new List<string>();
-        if (string.Equals(request.Settings.WaterMode, "riversandlakes", StringComparison.OrdinalIgnoreCase)) warnings.Add("Os dados de lagos são exportados, mas a superfície visual e a natação deste adaptador cobrem apenas rios.");
         if (!engine.Detected) warnings.Add($"{engine.Name} não foi encontrada. O projeto será criado, mas não poderá ser aberto automaticamente.");
         if (Directory.Exists(valid.ProjectPath) && Directory.EnumerateFileSystemEntries(valid.ProjectPath).Any())
             warnings.Add(request.Overwrite ? "Arquivos gerados com o mesmo nome poderão ser substituídos." : "A pasta já contém arquivos; habilite a substituição para continuar.");
@@ -83,7 +82,7 @@ public sealed class EngineIntegrationService
             world.Seed, style = settings.Style, world.GenerationVersion, size = map.Size, map.CellSize, fingerprint = world.Fingerprint().ToString("X16"),
             minimumHeight = map.Height.Min(), maximumHeight = map.Height.Max(), height = map.Height,
             waterDepth = map.WaterDepth, biomes = map.Biomes.Select(x => (int)x).ToArray(),
-            slope = map.Slope, flow = map.Flow, drainageReceiver = map.DrainageReceiver, riverChannel = map.RiverChannel, sediment = map.Sediment, caveOpening = map.CaveOpening,
+            slope = map.Slope, flow = map.Flow, drainageReceiver = map.DrainageReceiver, riverChannel = map.RiverChannel, mainRiverChannel = map.MainRiverChannel, sediment = map.Sediment, caveOpening = map.CaveOpening,
             caveEntrances = world.Caves.Entrances.Select(e => new { e.X, e.Z, e.SurfaceY, e.CaveY, e.FacingX, e.FacingZ, e.Radius })
         }, JsonOptions));
         WriteRaw16(Path.Combine(dataRoot, "heightmap.r16"), map.Height);

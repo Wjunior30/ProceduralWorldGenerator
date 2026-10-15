@@ -35,10 +35,10 @@ foreach (string mode in new[] {"riversOnly","none","riversAndLakes"})
     using var json = JsonDocument.Parse(File.ReadAllText(Path.Combine(result.ProjectPath,"ProceduralWorld/world-data.json")));
     var data = json.RootElement;
     int count = data.GetProperty("size").GetInt32(); count *= count;
-    Check(new[] {"height","biomes","flow","drainageReceiver","riverChannel"}.All(field => data.GetProperty(field).GetArrayLength()==count),"Complete hydrology reaches the adapter: " + mode);
+    Check(new[] {"height","biomes","flow","drainageReceiver","riverChannel","mainRiverChannel","waterDepth"}.All(field => data.GetProperty(field).GetArrayLength()==count),"Complete hydrology reaches the adapter: " + mode);
     string builder = File.ReadAllText(Path.Combine(result.ProjectPath,"Assets/Editor/FrameworkPreviewBuilder.cs"));
     Check(builder.Contains("RiverSurfaceField") && builder.Contains("ThirdPersonSetup.Configure"),"Shared river field and explorer reach Unity: "+mode);
     Check(File.Exists(Path.Combine(result.ProjectPath,"Assets/StreamingAssets/ProceduralWorld/world-config.json")),"Generation settings reach Unity: "+mode);
-    Check(plan.Warnings.Any(w=>w.Contains("lagos")) == (mode=="riversAndLakes"),"Lake rendering limitation is explicit: "+mode);
+    Check(!plan.Warnings.Any(w=>w.Contains("lagos")),"Lake rendering is fully supported: "+mode);
 }
 Console.WriteLine($"River framework: {checks} checks passed. Exports: {output}");

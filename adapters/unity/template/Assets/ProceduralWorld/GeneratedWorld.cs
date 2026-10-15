@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using UnityEngine;
 
-[Serializable] public class ProceduralWorldData { public int size; public float cellSize; public float minimumHeight; public float maximumHeight; public float[] height; public float[] waterDepth; public float[] flow; public int[] drainageReceiver; public bool[] riverChannel; public int[] biomes; public string fingerprint; }
+[Serializable] public class ProceduralWorldData { public int size; public float cellSize; public float minimumHeight; public float maximumHeight; public float[] height; public float[] waterDepth; public float[] flow; public int[] drainageReceiver; public bool[] riverChannel; public bool[] mainRiverChannel; public int[] biomes; public string fingerprint; }
 public static class GeneratedWorldBootstrap
 {
     [RuntimeInitializeOnLoadMethod]

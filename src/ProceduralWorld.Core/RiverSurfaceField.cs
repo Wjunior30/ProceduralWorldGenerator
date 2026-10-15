@@ -15,6 +15,7 @@ public sealed class RiverSurfaceField
 {
     private const float Bucket=32, Bank=12;
     private readonly float[] source;
+    private readonly float[] lakeDepth;
     private readonly List<RiverSurfaceSegment> segments=new();
     private readonly Dictionary<(int,int),List<int>> buckets=new();
     private readonly HashSet<(int,int)> refined=new();
@@ -30,6 +31,8 @@ public sealed class RiverSurfaceField
     {
         if(map.Size<2||!float.IsFinite(map.CellSize)||map.CellSize<=0)throw new ArgumentException("Invalid surface map",nameof(map));
         Size=map.Size;CellSize=map.CellSize;HalfExtent=(Size-1)*CellSize*.5f;source=(float[])map.Height.Clone();
+        lakeDepth=new float[source.Length];
+        for(int i=0;i<source.Length;i++)if(!map.RiverChannel[i]&&map.WaterDepth[i]>.025f)lakeDepth[i]=map.WaterDepth[i];
         var levels=(float[])source.Clone();float maximum=Math.Max(1,map.Flow.Max());
         float Amount(int i)=>(float)(Math.Log(1+Math.Max(0,map.Flow[i]))/Math.Log(1+maximum));
         var nodes=new Dictionary<int,Vector2>();var incoming=new Dictionary<int,List<int>>();
@@ -59,7 +62,9 @@ public sealed class RiverSurfaceField
         foreach(int i in nodes.Keys) {
             int r=map.DrainageReceiver[i];if(!nodes.ContainsKey(r))continue;
             Vector2 a=smooth[i],b=smooth[r];float amount=Amount(i);
-            float width=Lerp(4,11,(float)Math.Pow(amount,.8)),depth=Lerp(.5f,2.7f,(float)Math.Pow(amount,.72));
+            bool main=map.MainRiverChannel[i]||map.MainRiverChannel[r];
+            float width=main?Lerp(18,26,(float)Math.Pow(amount,.65)):Lerp(4,11,(float)Math.Pow(amount,.8));
+            float depth=main?Lerp(3.8f,6.2f,(float)Math.Pow(amount,.65)):Lerp(.5f,2.7f,(float)Math.Pow(amount,.72));
             float slope=Math.Max(0,levels[i]-levels[r])/Math.Max(Vector2.Distance(a,b),1);
             var segment=new RiverSurfaceSegment(a,b,levels[i],levels[r],width,depth,Clamp(.65f+amount*1.3f+(float)Math.Sqrt(slope)*2,.5f,3.2f),Smooth(.04f,.4f,slope));
             int id=segments.Count;segments.Add(segment);
@@ -69,6 +74,9 @@ public sealed class RiverSurfaceField
             for(int z=Math.Max(0,Floor((lo.Y+HalfExtent)/CellSize));z<Math.Min(Size-1,(int)Math.Ceiling((hi.Y+HalfExtent)/CellSize));z++)
                 for(int x=Math.Max(0,Floor((lo.X+HalfExtent)/CellSize));x<Math.Min(Size-1,(int)Math.Ceiling((hi.X+HalfExtent)/CellSize));x++)refined.Add((x,z));
         }
+        for(int z=0;z<Size;z++)for(int x=0;x<Size;x++)if(lakeDepth[z*Size+x]>.025f)
+            for(int dz=-1;dz<=0;dz++)for(int dx=-1;dx<=0;dx++)
+                if(x+dx>=0&&z+dz>=0&&x+dx<Size-1&&z+dz<Size-1)refined.Add((x+dx,z+dz));
     }
 
     public RiverSurfaceSample Sample(float x,float z)
@@ -90,7 +98,7 @@ public sealed class RiverSurfaceField
     private RiverSurfaceSample Raw(Vector2 point)
     {
         float ground=Base(point);
-        if(!buckets.TryGetValue((Floor(point.X/Bucket),Floor(point.Y/Bucket)),out var ids))return Dry(ground);
+        if(!buckets.TryGetValue((Floor(point.X/Bucket),Floor(point.Y/Bucket)),out var ids))return Lake(point,ground);
         float nearest=float.PositiveInfinity,width=0,weightSum=0,level=0,depth=0,rapid=0;var velocity=Vector2.Zero;
         foreach(int id in ids){var s=segments[id];var ab=s.B-s.A;float t=Clamp(Vector2.Dot(point-s.A,ab)/Math.Max(ab.LengthSquared(),.01f),0,1);
             float distance=Vector2.Distance(point,s.A+ab*t);if(distance>s.Width+Bank)continue;
@@ -98,11 +106,23 @@ public sealed class RiverSurfaceField
             float weight=(float)Math.Pow(Math.Max(0,1-distance/(s.Width+Bank)),4);
             level+=Lerp(s.LevelA,s.LevelB,t)*weight;depth+=s.Depth*weight;velocity+=Normalize(ab)*s.Speed*weight;rapid+=s.Rapids*weight;weightSum+=weight;
         }
-        if(weightSum<.00001f)return Dry(ground);
+        if(weightSum<.00001f)return Lake(point,ground);
         level/=weightSum;depth/=weightSum;velocity/=weightSum;rapid/=weightSum;float bed,wet;
         if(nearest<1){float section=1-Smooth(.12f,1,nearest);bed=level-depth*section;wet=1;velocity*=Lerp(.18f,1,(float)Math.Sqrt(section));}
         else{float distance=(nearest-1)*width;bed=Lerp(level,ground,Smooth(0,Bank,distance));wet=1-Smooth(0,3,distance);level=bed;velocity=Vector2.Zero;}
         return new(bed,level,velocity,wet,rapid);
+    }
+    private RiverSurfaceSample Lake(Vector2 point,float ground)
+    {
+        float gx=(point.X+HalfExtent)/CellSize,gz=(point.Y+HalfExtent)/CellSize;
+        int x=Math.Max(0,Math.Min(Size-2,Floor(gx))),z=Math.Max(0,Math.Min(Size-2,Floor(gz)));
+        float u=Clamp(gx-x,0,1),v=Clamp(gz-z,0,1);
+        int a=z*Size+x,b=a+1,c=a+Size,d=c+1;
+        float depth=Lerp(Lerp(lakeDepth[a],lakeDepth[b],u),Lerp(lakeDepth[c],lakeDepth[d],u),v);
+        if(depth<=.025f)return Dry(ground);
+        float sa=source[a]+lakeDepth[a],sb=source[b]+lakeDepth[b],sc=source[c]+lakeDepth[c],sd=source[d]+lakeDepth[d];
+        float surface=Lerp(Lerp(sa,sb,u),Lerp(sc,sd,u),v);
+        return new(ground,Math.Max(surface,ground),Vector2.Zero,1,0);
     }
     private float Base(Vector2 p){float gx=(p.X+HalfExtent)/CellSize,gz=(p.Y+HalfExtent)/CellSize;int x=Math.Max(0,Math.Min(Size-2,Floor(gx))),z=Math.Max(0,Math.Min(Size-2,Floor(gz)));float u=Clamp(gx-x,0,1),v=Clamp(gz-z,0,1);return Lerp(Lerp(source[z*Size+x],source[z*Size+x+1],u),Lerp(source[(z+1)*Size+x],source[(z+1)*Size+x+1],u),v);}
     private static RiverSurfaceSample Dry(float height)=>new(height,height,Vector2.Zero,0,0);

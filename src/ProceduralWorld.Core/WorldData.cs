@@ -7,7 +7,7 @@ public enum LandformKind : byte { Plain, Hill, Massif, Valley, Basin, Ridge, Cir
 
 public sealed class WorldSettings
 {
-    public int GenerationVersion { get; set; } = 4;
+    public int GenerationVersion { get; set; } = 5;
     public int Size { get; set; } = 129;
     public float CellSize { get; set; } = 8;
     public float BaseElevation { get; set; } = 80;
@@ -22,6 +22,11 @@ public sealed class WorldSettings
     public int ErosionIterations { get; set; } = 24;
     public float ErosionStrength { get; set; } = .18f;
     public float RiverWidthMultiplier { get; set; } = 1;
+    public float MainRiverWidth { get; set; } = 42;
+    public float MainRiverDepth { get; set; } = 5.5f;
+    public float TributaryThresholdMultiplier { get; set; } = 2.25f;
+    public int LagoonCount { get; set; } = 2;
+    public float LagoonDepth { get; set; } = 6;
     public float CaveDensity { get; set; } = 1;
     public float BiomeRegionScale { get; set; } = 1;
     public Biome[] EnabledBiomes { get; set; } = (Biome[])Enum.GetValues(typeof(Biome));
@@ -30,7 +35,7 @@ public sealed class WorldSettings
     public void Validate()
     {
         if (GenerationVersion < 1 || Size < 17) throw new ArgumentOutOfRangeException(nameof(Size));
-        if (CellSize <= 0 || MountainHeight < 0 || CaveDepthCells < 8 || ReliefStrength < 0 || RiverWidthMultiplier <= 0 || CaveDensity <= 0 || BiomeRegionScale <= 0)
+        if (CellSize <= 0 || MountainHeight < 0 || CaveDepthCells < 8 || ReliefStrength < 0 || RiverWidthMultiplier <= 0 || MainRiverWidth <= 0 || MainRiverDepth <= 0 || TributaryThresholdMultiplier < 1 || LagoonCount < 0 || LagoonDepth <= 0 || CaveDensity <= 0 || BiomeRegionScale <= 0)
             throw new ArgumentOutOfRangeException("World dimensions and multipliers must be positive.");
         if (!float.IsFinite(WindX) || !float.IsFinite(WindZ) || Math.Abs(WindX) + Math.Abs(WindZ) < .001f)
             throw new ArgumentOutOfRangeException(nameof(WindX), "Wind must be a finite, non-zero 2D vector.");
@@ -47,9 +52,9 @@ public sealed class SurfaceMap
     {
         Size = size; CellSize = cellSize; int count = checked(size * size);
         Height = new float[count]; Slope = new float[count]; Temperature = new float[count]; Moisture = new float[count];
-        Flow = new float[count]; WaterDepth = new float[count]; Sediment = new float[count]; Ridge = new float[count]; Continentalness = new float[count]; RockHardness = new float[count]; Strata = new float[count];
+        Flow = new float[count]; WaterDepth = new float[count]; LagoonSurface = new float[count]; Sediment = new float[count]; Ridge = new float[count]; Continentalness = new float[count]; RockHardness = new float[count]; Strata = new float[count];
         Curvature = new float[count]; SlopeSaturation = new float[count]; BasinId = new int[count]; StreamOrder = new byte[count]; CaveOpening = new bool[count]; Landforms = new LandformKind[count];
-        DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
+        DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; MainRiverChannel = new bool[count]; LagoonBasin = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
     }
     public int Size { get; }
     public float CellSize { get; }
@@ -59,6 +64,7 @@ public sealed class SurfaceMap
     public float[] Moisture { get; }
     public float[] Flow { get; }
     public float[] WaterDepth { get; }
+    public float[] LagoonSurface { get; }
     public float[] Sediment { get; }
     public float[] Ridge { get; }
     public float[] Continentalness { get; }
@@ -73,6 +79,8 @@ public sealed class SurfaceMap
     public double ErosionMassDelta { get; internal set; }
     public int[] DrainageReceiver { get; }
     public bool[] RiverChannel { get; }
+    public bool[] MainRiverChannel { get; }
+    public bool[] LagoonBasin { get; }
     public Biome[] Biomes { get; }
     public GeologicalIdentity[] Geology { get; }
     public int Index(int x, int z) => checked(z * Size + x);

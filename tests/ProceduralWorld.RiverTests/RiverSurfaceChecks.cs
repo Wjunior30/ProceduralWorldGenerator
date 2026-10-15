@@ -16,6 +16,9 @@ internal static class RiverSurfaceChecks
         check(map.Height.All(x=>x==20),"River field leaves generator heights untouched");
         check(field.Sample(.7f,.4f)==field.Sample(.7f,.4f),"Repeated refined queries are deterministic");
         check(field.RefinedCells.Count()<16*16,"Refinement remains local to the corridor");
+        var lakeMap=new SurfaceMap(17,8);Array.Fill(lakeMap.Height,20);lakeMap.Height[lakeMap.Index(8,8)]=14;lakeMap.WaterDepth[lakeMap.Index(8,8)]=6;
+        var lakeField=new RiverSurfaceField(lakeMap);var lake=lakeField.Sample(0,0);
+        check(lake.Depth>5.9f && lake.Velocity.LengthSquared()==0,"Deep lagoons render as still water in the shared field");
         if(dataPath==null || referencePath==null)return;
         using var input=JsonDocument.Parse(File.ReadAllText(dataPath));var data=input.RootElement;
         var source=new SurfaceMap(data.GetProperty("size").GetInt32(),data.GetProperty("cellSize").GetSingle());

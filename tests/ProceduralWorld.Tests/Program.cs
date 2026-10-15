@@ -10,7 +10,7 @@ static GeneratedWorld Generate(long seed, TerrainStyle style = TerrainStyle.Natu
 }
 
 GeneratedWorld a = Generate(42), b = Generate(42), c = Generate(43);
-Check(a.GenerationVersion == 4, "The structural geology pipeline must publish generation version 4.");
+Check(a.GenerationVersion == 5, "The principal-basin hydrology pipeline must publish generation version 5.");
 Check(a.Fingerprint() == b.Fingerprint(), "Same seed must reproduce the same world.");
 Check(a.Fingerprint() != c.Fingerprint(), "Different seeds must produce different worlds.");
 Check(a.Surface.Height.Max() - a.Surface.Height.Min() > 100, "Terrain must have meaningful vertical relief.");
@@ -42,6 +42,17 @@ Check(implicitCaves.HasNavigableEntrance(2.5) && implicitCaves.IsInside(entrance
 
 IReadOnlyList<ChunkRequest> requests = new StreamingPlanner().Plan(0, 0, new StreamingSettings());
 Check(requests.Count == 49 && requests.Count(x => x.NeedsCollision) == 9, "Streaming plan must preserve load and collision rings.");
+Check(requests.Count(x => x.Detail == ChunkDetail.High) == 16, "High detail ring must be reachable between collision and medium rings.");
+IReadOnlyList<ChunkRequest> horizon = new StreamingPlanner().Plan(0, 0, new StreamingSettings { HorizonRadius = 5 });
+Check(horizon.Count == 121 && horizon.Where(x => x.Detail == ChunkDetail.Horizon).All(x => x.SampleStep == 64), "Horizon rings must be planned beyond the load radius.");
+SurfaceChunk left = ChunkExtractor.Extract(a.Surface, 0, 0, 17), right = ChunkExtractor.Extract(a.Surface, 16, 0, 17);
+Check(Enumerable.Range(0, 17).All(z => left.Height[z * 17 + 16] == right.Height[z * 17]), "Neighbouring chunks extracted with a shared edge must not seam.");
+var nav = NavigationGrid.Build(a.Surface);
+Check(nav.Cost.Where((_, i) => a.Surface.WaterDepth[i] > 0).All(float.IsPositiveInfinity), "Water must be impassable for walking NPCs.");
+Check(nav.Cost.Count(float.IsFinite) > nav.Cost.Length / 2, "Most land must be walkable.");
+int startCell = Array.FindIndex(nav.Cost, float.IsFinite), goalCell = Array.FindLastIndex(nav.Cost, float.IsFinite);
+var path = nav.FindPath(startCell % nav.Size, startCell / nav.Size, goalCell % nav.Size, goalCell / nav.Size);
+Check(path is null || (path[0] == (startCell % nav.Size, startCell / nav.Size) && path.All(p => float.IsFinite(nav.Cost[p.Z * nav.Size + p.X]))), "Paths must only cross walkable cells.");
 var voxelA = new ProceduralWorld.Core.Voxels.VoxelWorldGenerator(7).GenerateChunk(0, 0);
 var voxelB = new ProceduralWorld.Core.Voxels.VoxelWorldGenerator(7).GenerateChunk(0, 0);
 Check(voxelA.SurfaceHeight.SequenceEqual(voxelB.SurfaceHeight), "Voxel chunks must be order-independent and deterministic.");
@@ -82,10 +93,17 @@ foreach (long seed in auditSeeds)
     Check(report.CaveEntrances == 4 && report.InaccessibleEntrances == 0 && report.ReachableCaveRatio >= .999, $"{style}/{seed} produced disconnected caves.");
     Check(report.RepeatedSteepGradeRatio < .04, $"{style}/{seed} saturated too many edges at one grade ({report.RepeatedSteepGradeRatio:P1}).");
     Check(report.DominantBiomeRatio <= .78, $"{style}/{seed} is dominated by one biome ({report.DominantBiomeRatio:P1}).");
-    Check(report.DrainageOutlets is >= 2 and <= 12, $"{style}/{seed} produced an invalid outlet count ({report.DrainageOutlets}).");
+    Check(report.DrainageOutlets == 1, $"{style}/{seed} must drain through one principal outlet ({report.DrainageOutlets}).");
     Check(report.ErosionMassRelativeError < 1e-5, $"{style}/{seed} did not conserve erosion mass ({report.ErosionMassRelativeError:E2}).");
     Check(report.BasinCount == report.DrainageOutlets, $"{style}/{seed} basin and outlet counts disagree.");
     Check(report.MaximumStreamOrder >= 1, $"{style}/{seed} did not classify its river hierarchy.");
+    int[] mainRiver = Enumerable.Range(0, world.Surface.Height.Length).Where(i => world.Surface.MainRiverChannel[i]).ToArray();
+    int mainSpanX = mainRiver.Max(i => i % world.Surface.Size) - mainRiver.Min(i => i % world.Surface.Size);
+    int mainSpanZ = mainRiver.Max(i => i / world.Surface.Size) - mainRiver.Min(i => i / world.Surface.Size);
+    Check(Math.Max(mainSpanX, mainSpanZ) >= world.Surface.Size * .70, $"{style}/{seed} principal river does not cross enough of the map ({mainSpanX}x{mainSpanZ}).");
+    Check(mainRiver.All(i => world.Surface.DrainageReceiver[i] < 0 || world.Surface.MainRiverChannel[world.Surface.DrainageReceiver[i]]), $"{style}/{seed} principal river is disconnected.");
+    Check(mainRiver.Max(i => world.Surface.WaterDepth[i]) >= 3.5f, $"{style}/{seed} principal river is not deep enough.");
+    Check(world.Surface.RiverChannel.Count(x => x) <= mainRiver.Length * 4, $"{style}/{seed} produced too many tributary cells.");
     Check(report.CaveComponents == 1, $"{style}/{seed} retained disconnected cave components.");
     Check(world.Caves.Entrances.All(e => world.Surface.CaveOpening[world.Surface.Index(e.X, e.Z)]), $"{style}/{seed} has a cave entrance without a surface opening.");
 }
@@ -99,6 +117,8 @@ lakeSettings.WaterMode = WaterMode.RiversAndLakes;
 GeneratedWorld lakeWorld = new WorldGenerator(2026, lakeSettings).Generate();
 Check(lakeWorld.Surface.WaterDepth.Where((depth, index) => depth > .25f && !lakeWorld.Surface.RiverChannel[index]).Any(),
     "RiversAndLakes mode must preserve at least one non-river lake cell.");
+Check(lakeWorld.Surface.WaterDepth.Where((depth,index) => !lakeWorld.Surface.RiverChannel[index]).DefaultIfEmpty().Max() >= 4,
+    "Generated lagoons must include deep water.");
 Check(TerrainDiagnostics.Analyze(lakeWorld).ErosionMassRelativeError < 1e-5,
     "Lake preservation must conserve the complete geomorphic pipeline mass.");
 GeneratedWorld largeAlpineRegression = Generate(7924047624999685062, TerrainStyle.Alpine, 129);
