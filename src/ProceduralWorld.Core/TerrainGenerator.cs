@@ -292,7 +292,7 @@ public sealed class TerrainGenerator
             else map.Biomes[i] = Biome.Grassland;
         }
         MarkBeaches(map);
-        BalanceDominantBiome(map);
+        ApplyBiomeQuotas(map);
         ApplyBiomeSelection(map);
     }
 
@@ -367,49 +367,60 @@ public sealed class TerrainGenerator
         return false;
     }
 
-    private static void BalanceDominantBiome(SurfaceMap map)
+    // Land biome shares: Forest 30%, the other nine split the rest evenly (~7.7% each).
+    // Beach, River and Lake keep following the terrain and are excluded from the quotas.
+    private static readonly Biome[] QuotaBiomes = { Biome.Desert, Biome.Savanna, Biome.Grassland, Biome.Forest, Biome.Jungle, Biome.Swamp, Biome.Taiga, Biome.Tundra, Biome.Rock, Biome.Snow };
+    private const double ForestShare = .30;
+
+    /// <summary>
+    /// Assigns land biomes to hit fixed area shares while respecting climate: each cell takes the biome with the
+    /// lowest suitability cost minus a per-biome offset, and the offsets are tuned until every biome meets its share.
+    /// A majority filter then removes speckle so regions stay contiguous.
+    /// </summary>
+    private static void ApplyBiomeQuotas(SurfaceMap map)
     {
-        int limit = (int)Math.Floor(map.Biomes.Length * .70);
-        for (int pass = 0; pass < 3; pass++)
+        int[] cells = Enumerable.Range(0, map.Biomes.Length).Where(i => map.WaterDepth[i] <= 0 && map.Biomes[i] != Biome.Beach).ToArray();
+        int m = cells.Length, k = QuotaBiomes.Length;
+        if (m == 0) return;
+        var cost = new float[m * k];
+        for (int c = 0; c < m; c++) for (int b = 0; b < k; b++) cost[c * k + b] = BiomeCost(map, cells[c], QuotaBiomes[b]);
+        var target = QuotaBiomes.Select(b => (b == Biome.Forest ? ForestShare : (1 - ForestShare) / (k - 1)) * m).ToArray();
+        var offset = new double[k]; var count = new int[k]; var choice = new int[m];
+        for (int iteration = 0; iteration < 240; iteration++)
         {
-            var dominant = map.Biomes.GroupBy(x => x).OrderByDescending(x => x.Count()).First();
-            if (dominant.Count() <= limit || dominant.Key is Biome.River or Biome.Lake) return;
-            Biome source = dominant.Key;
-            var candidates = Enumerable.Range(0, map.Biomes.Length)
-                .Where(i => map.Biomes[i] == source && map.WaterDepth[i] <= 0)
-                .Select(i => (Index: i, Alternative: AlternativeBiome(map, i, source), Score: TransitionScore(map, i)))
-                .Where(x => x.Alternative != source)
-                .OrderByDescending(x => x.Score)
-                .ThenBy(x => x.Index)
-                .Take(dominant.Count() - limit)
-                .ToArray();
-            if (candidates.Length == 0) return;
-            foreach (var candidate in candidates) map.Biomes[candidate.Index] = candidate.Alternative;
+            Array.Clear(count, 0, k);
+            for (int c = 0; c < m; c++)
+            {
+                int best = 0; double bestValue = double.MaxValue;
+                for (int b = 0; b < k; b++) { double v = cost[c * k + b] - offset[b]; if (v < bestValue) { bestValue = v; best = b; } }
+                choice[c] = best; count[best]++;
+            }
+            double step = .6 * Math.Pow(.975, iteration) + .004;
+            for (int b = 0; b < k; b++) offset[b] += step * (target[b] - count[b]) / m * k;
+        }
+        for (int c = 0; c < m; c++) map.Biomes[cells[c]] = QuotaBiomes[choice[c]];
+
+        int n = map.Size; var votes = new int[k];
+        for (int pass = 0; pass < 4; pass++)
+        {
+            var next = (Biome[])map.Biomes.Clone();
+            foreach (int i in cells)
+            {
+                Array.Clear(votes, 0, k);
+                int x = i % n, z = i / n;
+                for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++)
+                {
+                    int nx = x + dx, nz = z + dz;
+                    if ((dx == 0 && dz == 0) || nx < 0 || nz < 0 || nx >= n || nz >= n) continue;
+                    int b = Array.IndexOf(QuotaBiomes, map.Biomes[map.Index(nx, nz)]);
+                    if (b >= 0) votes[b]++;
+                }
+                int majority = 0; for (int b = 1; b < k; b++) if (votes[b] > votes[majority]) majority = b;
+                if (votes[majority] >= 5) next[i] = QuotaBiomes[majority];
+            }
+            Array.Copy(next, map.Biomes, next.Length);
         }
     }
-
-    private static Biome AlternativeBiome(SurfaceMap map, int i, Biome source)
-    {
-        float moisture = map.Moisture[i], temperature = map.Temperature[i], slope = map.Slope[i];
-        return source switch
-        {
-            Biome.Grassland => temperature < 4 ? (moisture > .48f ? Biome.Taiga : Biome.Tundra) : moisture > .54f ? Biome.Forest : temperature > 18 ? Biome.Savanna : Biome.Forest,
-            Biome.Forest => temperature > 24 && moisture > .72f ? Biome.Jungle : moisture < .42f ? Biome.Grassland : slope < .10f ? Biome.Swamp : Biome.Grassland,
-            Biome.Savanna => moisture < .29f ? Biome.Desert : moisture > .58f ? Biome.Forest : Biome.Grassland,
-            Biome.Desert => moisture > .34f ? Biome.Savanna : slope > .42f ? Biome.Rock : Biome.Grassland,
-            Biome.Rock => temperature < -4 ? Biome.Snow : moisture < .34f ? Biome.Desert : Biome.Grassland,
-            Biome.Snow => temperature > -4 ? Biome.Tundra : slope > .55f ? Biome.Rock : Biome.Tundra,
-            Biome.Tundra => moisture > .48f ? Biome.Taiga : slope > .38f ? Biome.Rock : Biome.Grassland,
-            Biome.Taiga => temperature > 8 ? Biome.Forest : moisture < .38f ? Biome.Tundra : Biome.Forest,
-            Biome.Jungle => slope < .10f ? Biome.Swamp : Biome.Forest,
-            Biome.Swamp => moisture > .62f ? Biome.Forest : Biome.Grassland,
-            Biome.Beach => moisture > .56f ? Biome.Grassland : Biome.Savanna,
-            _ => source
-        };
-    }
-
-    private static float TransitionScore(SurfaceMap map, int i)
-        => Math.Abs(map.Moisture[i] - .5f) + Math.Abs(map.Temperature[i] - 14) / 35f + map.Slope[i] * .18f + Math.Abs(map.Curvature[i]) * 3;
 
     private static void MarkBeaches(SurfaceMap map)
     {
