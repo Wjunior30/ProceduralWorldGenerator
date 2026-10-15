@@ -58,7 +58,7 @@ public sealed class SurfaceMap
         Height = new float[count]; Slope = new float[count]; Temperature = new float[count]; Moisture = new float[count];
         Flow = new float[count]; WaterDepth = new float[count]; LagoonSurface = new float[count]; Sediment = new float[count]; Ridge = new float[count]; Continentalness = new float[count]; RockHardness = new float[count]; Strata = new float[count];
         Curvature = new float[count]; SlopeSaturation = new float[count]; BasinId = new int[count]; StreamOrder = new byte[count]; CaveOpening = new bool[count]; Landforms = new LandformKind[count];
-        DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; MainRiverChannel = new bool[count]; LagoonBasin = new bool[count]; Ocean = new bool[count]; Road = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
+        DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; MainRiverChannel = new bool[count]; LagoonBasin = new bool[count]; Ocean = new bool[count]; Road = new bool[count]; PavedRoad = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
     }
     public int Size { get; }
     public float CellSize { get; }
@@ -88,6 +88,8 @@ public sealed class SurfaceMap
     public bool[] Ocean { get; }
     /// <summary>Road cells connecting settlement sites (island style).</summary>
     public bool[] Road { get; }
+    /// <summary>Road cells that belong to an asphalt highway between towns and villages.</summary>
+    public bool[] PavedRoad { get; }
     /// <summary>Flattened places for settlements, work and factions.</summary>
     public List<Site> Sites { get; } = new();
     public List<RoadLink> RoadLinks { get; } = new();
@@ -182,5 +184,5 @@ public sealed class GeneratedWorld
 public enum SiteKind { Village, Mine, Fishing, Farm, HuntersCamp, Outpost, Ruins, Town, Port, BanditCamp, Nest }
 /// <summary>A flattened place in grid cells; Radius in cells.</summary>
 public sealed record Site(SiteKind Kind, int X, int Z, int Radius, int Tier = 1);
-/// <summary>Road between two sites (indexes into SurfaceMap.Sites); Length in metres along the road.</summary>
-public sealed record RoadLink(int From, int To, float Length);
+/// <summary>Road between two sites (indexes into SurfaceMap.Sites); Length in metres; Paved for the asphalt highways; Cells is the route.</summary>
+public sealed record RoadLink(int From, int To, float Length, bool Paved = false, IReadOnlyList<int>? Cells = null);
