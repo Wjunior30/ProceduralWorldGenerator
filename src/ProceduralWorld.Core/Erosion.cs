@@ -52,6 +52,37 @@ internal static class Erosion
         }
     }
 
+    /// <summary>
+    /// Detachment-limited stream power incision (implicit Braun-Willett): dh/dt = -K A^0.5 S, solved upstream from outlets.
+    /// Large catchments cut valleys, ridges with tiny catchments barely change, hard rock resists.
+    /// </summary>
+    public static void ApplyStreamPower(SurfaceMap map, int iterations, float strength)
+    {
+        if (iterations <= 0 || strength <= 0) return;
+        float[] bias = Hydrology.MeanderBias(map);
+        int n = map.Size;
+        double mass = map.Height.Sum(x => (double)x);
+        for (int iteration = 0; iteration < iterations; iteration++)
+        {
+            var solution = Hydrology.Solve(map, bias);
+            for (int o = 0; o < solution.Count; o++)
+            {
+                int cell = solution.Order[o], receiver = map.DrainageReceiver[cell];
+                if (receiver < 0) continue;
+                float floor = map.Height[receiver];
+                if (map.Height[cell] <= floor) continue;
+                bool diagonal = cell % n != receiver % n && cell / n != receiver / n;
+                float f = strength * (1.15f - map.RockHardness[cell]) * (float)Math.Sqrt(map.Flow[cell]) / (diagonal ? 1.41421356f : 1f);
+                float eroded = (map.Height[cell] + f * floor) / (1 + f);
+                map.Sediment[cell] += map.Height[cell] - eroded;
+                map.Height[cell] = eroded;
+            }
+        }
+        // Eroded material settles as a uniform alluvial blanket so the pipeline conserves mass.
+        float correction = (float)((mass - map.Height.Sum(x => (double)x)) / map.Height.Length);
+        for (int i = 0; i < map.Height.Length; i++) map.Height[i] += correction;
+    }
+
     public static void RelaxSlopes(SurfaceMap map, float maximumGradient, int passes)
     {
         int n = map.Size;
@@ -79,6 +110,8 @@ internal static class Erosion
                 int high = difference > 0 ? a : b, low = difference > 0 ? b : a;
                 float hardness = (map.RockHardness[high] + map.RockHardness[low]) * .5f;
                 float localLimit = maximumGradient * (.67f + hardness * .23f) * map.CellSize * distance;
+                int ax = a % n, az = a / n; // smooth variation avoids a single saturated slope value without speckle
+                localLimit *= .88f + .12f * (1 + (float)(Math.Sin(ax * .37 + az * .23) * Math.Cos(az * .31 - ax * .17)));
                 float excess = Math.Abs(difference) - localLimit;
                 if (excess <= 0) return;
                 float transfer = Math.Min(map.CellSize * .18f, excess * (.16f + (1 - hardness) * .12f));

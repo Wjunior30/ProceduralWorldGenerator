@@ -7,7 +7,7 @@ public enum LandformKind : byte { Plain, Hill, Massif, Valley, Basin, Ridge, Cir
 
 public sealed class WorldSettings
 {
-    public int GenerationVersion { get; set; } = 5;
+    public int GenerationVersion { get; set; } = 6;
     public int Size { get; set; } = 129;
     public float CellSize { get; set; } = 8;
     public float BaseElevation { get; set; } = 80;

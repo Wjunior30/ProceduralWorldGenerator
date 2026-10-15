@@ -10,7 +10,7 @@ static GeneratedWorld Generate(long seed, TerrainStyle style = TerrainStyle.Natu
 }
 
 GeneratedWorld a = Generate(42), b = Generate(42), c = Generate(43);
-Check(a.GenerationVersion == 5, "The principal-basin hydrology pipeline must publish generation version 5.");
+Check(a.GenerationVersion == 6, "Stream-power erosion and meandering drainage publish generation version 6.");
 Check(a.Fingerprint() == b.Fingerprint(), "Same seed must reproduce the same world.");
 Check(a.Fingerprint() != c.Fingerprint(), "Different seeds must produce different worlds.");
 Check(a.Surface.Height.Max() - a.Surface.Height.Min() > 100, "Terrain must have meaningful vertical relief.");

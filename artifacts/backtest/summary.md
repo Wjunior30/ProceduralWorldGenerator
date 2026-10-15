@@ -1,60 +1,41 @@
 # Procedural World geological backtest
 
-Generated 700 worlds in 21,2s. Scores validate topology and geological distributions; they are not artistic ratings.
+Generated 140 worlds in 12,4s. Scores validate topology and geological distributions; they are not artistic ratings.
 
 | Profile | Resolution | Avg | Worst | Flat | Steep | Rivers | Reachable caves | Failures |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 65 | 99,6 | 94,0 | 19,0% | 17,5% | 1,82% | 100,0% | 10 / 50 |
-| Alpine | 65 | 98,5 | 86,6 | 14,8% | 47,1% | 1,64% | 100,0% | 18 / 50 |
-| Canyonlands | 65 | 99,8 | 96,6 | 20,5% | 25,3% | 1,81% | 100,0% | 5 / 50 |
-| Karst | 65 | 99,3 | 90,0 | 29,6% | 2,9% | 2,00% | 100,0% | 11 / 50 |
-| RollingPlains | 65 | 99,5 | 91,2 | 53,7% | 0,0% | 1,92% | 100,0% | 11 / 50 |
-| Glacial | 65 | 99,6 | 79,6 | 21,2% | 35,3% | 1,84% | 100,0% | 3 / 50 |
-| Volcanic | 65 | 100,0 | 100,0 | 22,9% | 17,8% | 1,89% | 100,0% | 1 / 50 |
-| Natural | 129 | 100,0 | 98,7 | 22,7% | 11,3% | 2,37% | 100,0% | 2 / 50 |
-| Alpine | 129 | 99,7 | 95,7 | 17,9% | 36,4% | 2,20% | 100,0% | 7 / 50 |
-| Canyonlands | 129 | 100,0 | 100,0 | 22,6% | 25,7% | 2,28% | 100,0% | 0 / 50 |
-| Karst | 129 | 99,9 | 98,3 | 30,8% | 2,6% | 2,47% | 100,0% | 6 / 50 |
-| RollingPlains | 129 | 100,0 | 100,0 | 55,3% | 0,0% | 2,47% | 100,0% | 0 / 50 |
-| Glacial | 129 | 100,0 | 99,9 | 23,9% | 28,7% | 2,15% | 100,0% | 1 / 50 |
-| Volcanic | 129 | 100,0 | 100,0 | 27,6% | 7,9% | 2,37% | 100,0% | 0 / 50 |
+| Natural | 65 | 100,0 | 100,0 | 27,0% | 19,5% | 2,94% | 100,0% | 0 / 10 |
+| Alpine | 65 | 100,0 | 100,0 | 33,7% | 37,0% | 2,72% | 100,0% | 0 / 10 |
+| Canyonlands | 65 | 100,0 | 100,0 | 26,3% | 24,2% | 2,80% | 100,0% | 0 / 10 |
+| Karst | 65 | 100,0 | 100,0 | 28,7% | 5,1% | 2,96% | 100,0% | 0 / 10 |
+| RollingPlains | 65 | 100,0 | 100,0 | 53,4% | 0,0% | 3,06% | 100,0% | 0 / 10 |
+| Glacial | 65 | 100,0 | 100,0 | 29,1% | 31,1% | 2,77% | 100,0% | 0 / 10 |
+| Volcanic | 65 | 100,0 | 100,0 | 27,4% | 16,7% | 3,29% | 100,0% | 0 / 10 |
+| Natural | 129 | 100,0 | 100,0 | 31,9% | 10,2% | 2,41% | 100,0% | 0 / 10 |
+| Alpine | 129 | 100,0 | 100,0 | 36,4% | 28,7% | 2,06% | 100,0% | 0 / 10 |
+| Canyonlands | 129 | 100,0 | 100,0 | 34,3% | 22,9% | 2,14% | 100,0% | 0 / 10 |
+| Karst | 129 | 100,0 | 100,0 | 35,2% | 2,8% | 2,39% | 100,0% | 0 / 10 |
+| RollingPlains | 129 | 100,0 | 100,0 | 62,1% | 0,0% | 2,49% | 100,0% | 0 / 10 |
+| Glacial | 129 | 100,0 | 100,0 | 37,6% | 25,5% | 2,29% | 100,0% | 0 / 10 |
+| Volcanic | 129 | 100,0 | 100,0 | 38,5% | 9,1% | 2,36% | 100,0% | 0 / 10 |
 
-**Best:** Alpine, seed `-392661752437002823`, score 100,0.
-**Worst:** Glacial, seed `7924047624999685062`, score 79,6.
-**3D render candidate:** Alpine, seed `-392661752437002823`, score 100,0, relief 785,3.
+**Best:** Alpine, seed `1`, score 100,0.
+**Worst:** Natural, seed `1`, score 100,0.
+**3D render candidate:** Alpine, seed `1`, score 100,0, relief 650,0.
 
 ## Findings
 
-- um bioma domina 73,8% do mapa: 3 cases
-- ápice isolado excessivo (6,9): 3 cases
-- ápice isolado excessivo (7,0): 3 cases
-- inclinações saturadas em um mesmo valor (3,7%): 3 cases
-- um bioma domina 74,7% do mapa: 3 cases
-- faltam áreas planas (6,8%): 2 cases
-- um bioma domina 76,7% do mapa: 2 cases
-- um bioma domina 75,1% do mapa: 2 cases
-- degrau máximo excessivo (17,1): 2 cases
-- um bioma domina 72,6% do mapa: 2 cases
-- um bioma domina 77,1% do mapa: 2 cases
-- um bioma domina 76,6% do mapa: 2 cases
-- um bioma domina 74,5% do mapa: 2 cases
-- um bioma domina 74,4% do mapa: 2 cases
-- degrau máximo excessivo (16,1): 2 cases
-- um bioma domina 72,1% do mapa: 2 cases
-- um bioma domina 73,0% do mapa: 1 cases
-- faltam áreas planas (6,1%): 1 cases
-- inclinações saturadas em um mesmo valor (4,2%): 1 cases
-- um bioma domina 80,6% do mapa: 1 cases
+- No structural failures.
 
 ## Worst cases
 
-- Glacial `7924047624999685062` — 79,6: um bioma domina 72,7% do mapa; 2 componentes subterrâneos desconectados
-- Alpine `-3719345503411677977` — 86,6: degrau máximo excessivo (24,4); um bioma domina 81,2% do mapa
-- Karst `-3719345503411677977` — 90,0: um bioma domina 90,2% do mapa
-- Alpine `7681369315911520508` — 90,8: ápice isolado excessivo (7,5); um bioma domina 87,1% do mapa
-- RollingPlains `-8466692820785526154` — 91,2: um bioma domina 88,0% do mapa
-- Alpine `4990025626462012731` — 93,6: ápice isolado excessivo (7,0); um bioma domina 83,2% do mapa
-- Natural `-2448665380361343223` — 94,0: inclinações saturadas em um mesmo valor (4,2%); um bioma domina 80,6% do mapa
-- Alpine `-7438691006823355954` — 94,4: um bioma domina 82,2% do mapa
-- RollingPlains `-5775349131336018377` — 94,4: um bioma domina 82,1% do mapa
-- Alpine `-5775349131336018377` — 94,9: degrau máximo excessivo (21,1)
+- Natural `1` — 100,0: no structural findings
+- Natural `7` — 100,0: no structural findings
+- Natural `42` — 100,0: no structural findings
+- Natural `1337` — 100,0: no structural findings
+- Natural `2026` — 100,0: no structural findings
+- Natural `4096` — 100,0: no structural findings
+- Natural `9876` — 100,0: no structural findings
+- Natural `65537` — 100,0: no structural findings
+- Natural `99991` — 100,0: no structural findings
+- Natural `173133397` — 100,0: no structural findings

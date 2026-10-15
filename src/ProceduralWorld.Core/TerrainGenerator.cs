@@ -62,6 +62,13 @@ public sealed class TerrainGenerator
 
         double massBeforeErosion = map.Height.Sum(x => (double)x);
         Erosion.ApplyThermal(map, _settings.ErosionIterations, _settings.ErosionStrength, _settings.TerrainStyle);
+        Erosion.ApplyStreamPower(map, 6, _settings.TerrainStyle switch
+        {
+            TerrainStyle.Canyonlands => .030f,
+            TerrainStyle.RollingPlains or TerrainStyle.Karst => .012f,
+            TerrainStyle.Glacial => .016f,
+            _ => .022f
+        });
         float maximumGradient = _settings.TerrainStyle switch
         {
             TerrainStyle.Alpine => .96f,
@@ -213,6 +220,23 @@ public sealed class TerrainGenerator
         }
     }
 
+    /// <summary>Chamfer distance in cells to the nearest water cell (two-pass 3-4 approximation).</summary>
+    private static float[] WaterDistance(SurfaceMap map)
+    {
+        int n = map.Size;
+        var d = new float[n * n];
+        for (int i = 0; i < d.Length; i++) d[i] = map.WaterDepth[i] > 0 ? 0 : 1e6f;
+        for (int z = 0; z < n; z++) for (int x = 0; x < n; x++) Relax(x, z, -1);
+        for (int z = n - 1; z >= 0; z--) for (int x = n - 1; x >= 0; x--) Relax(x, z, 1);
+        return d;
+        void Relax(int x, int z, int s)
+        {
+            int i = map.Index(x, z);
+            Take(x + s, z, 1); Take(x, z + s, 1); Take(x + s, z + s, 1.41421356f); Take(x - s, z + s, 1.41421356f);
+            void Take(int nx, int nz, float cost) { if (nx >= 0 && nz >= 0 && nx < n && nz < n) d[i] = Math.Min(d[i], d[map.Index(nx, nz)] + cost); }
+        }
+    }
+
     private void ClassifyClimate(SurfaceMap map)
     {
         int n = map.Size;
@@ -239,6 +263,7 @@ public sealed class TerrainGenerator
                 rainShadow[i] = Math.Min(1, airborne + lift * .65f);
             }
         }
+        float[] waterDistance = WaterDistance(map);
 
         for (int z = 0; z < n; z++) for (int x = 0; x < n; x++)
         {
@@ -249,7 +274,8 @@ public sealed class TerrainGenerator
             float ecology = (float)_featureA.Sample(px, pz) + (float)Math.Sin((px + pz) / 260d + (_seed & 1023) * .013) * .18f;
             float temperature = 29 - latitude * 22 - altitude * .016f + (float)_temperature.Sample(px, pz) * 5;
             float broadMoisture = .45f + (float)_moisture.Sample(px, pz) * .78f;
-            float moisture = Clamp01(broadMoisture * .72f + rainShadow[i] * .28f + (map.WaterDepth[i] > 0 ? .22f : 0));
+            float riparian = .24f * (float)Math.Exp(-waterDistance[i] / 3.5f); // wetter corridors along rivers and lakes
+            float moisture = Clamp01(broadMoisture * .72f + rainShadow[i] * .28f + riparian);
             map.Temperature[i] = temperature;
             map.Moisture[i] = moisture;
             if (map.WaterDepth[i] > 0) map.Biomes[i] = map.RiverChannel[i] ? Biome.River : Biome.Lake;

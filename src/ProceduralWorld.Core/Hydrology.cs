@@ -2,7 +2,7 @@ namespace ProceduralWorld.Core;
 
 internal static class Hydrology
 {
-    private sealed class DrainageSolution
+    internal sealed class DrainageSolution
     {
         public DrainageSolution(float[] filled, int[] order, int count) { Filled = filled; Order = order; Count = count; }
         public float[] Filled { get; }
@@ -22,8 +22,9 @@ internal static class Hydrology
         if (settings.WaterMode == WaterMode.None) return;
         double targetMass = map.Height.Sum(x => (double)x);
         bool preserveLakes = settings.WaterMode == WaterMode.RiversAndLakes;
+        float[] bias = MeanderBias(map);
 
-        DrainageSolution first = Solve(map);
+        DrainageSolution first = Solve(map, bias);
         MarkMainRiver(map, first);
         MarkChannels(map, settings);
         CarveChannels(map, settings, first);
@@ -31,13 +32,15 @@ internal static class Hydrology
         if (preserveLakes && settings.LagoonCount > 0)
             CarveLagoons(map, settings);
 
-        DrainageSolution second = Solve(map);
+        DrainageSolution second = Solve(map, bias);
         FillClosedDepressions(map, second, preserveLakes);
         Erosion.RelaxSlopes(map, .90f, 32);
-        DrainageSolution settled = Solve(map);
+        DrainageSolution settled = Solve(map, bias);
         FillClosedDepressions(map, settled, preserveLakes);
         Erosion.LimitExtremeSteps(map, map.CellSize * 1.80f, 24);
-        DrainageSolution final = Solve(map);
+        Erosion.SuppressIsolatedApexes(map, settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f, 4);
+        DrainageSolution final = Solve(map, bias);
+        EnsureDownhillReceivers(map, final);
         MarkMainRiver(map, final);
         MarkChannels(map, settings);
         AssignWater(map, settings, final);
@@ -74,7 +77,7 @@ internal static class Hydrology
         }
     }
 
-    private static DrainageSolution Solve(SurfaceMap map)
+    internal static DrainageSolution Solve(SurfaceMap map, float[]? bias = null)
     {
         int n = map.Size, count = n * n;
         Array.Clear(map.Flow, 0, map.Flow.Length);
@@ -84,9 +87,10 @@ internal static class Hydrology
         var visited = new bool[count];
         var heap = new MinHeap(count);
         int orderCount = 0;
+        float Routing(int i) => bias is null ? map.Height[i] : map.Height[i] + bias[i];
         foreach (int outlet in SelectOutlets(map))
         {
-            filled[outlet] = map.Height[outlet];
+            filled[outlet] = Routing(outlet);
             visited[outlet] = true;
             heap.Push(outlet, filled[outlet]);
         }
@@ -103,7 +107,10 @@ internal static class Hydrology
                 if (visited[next]) continue;
                 visited[next] = true;
                 float distance = dx != 0 && dz != 0 ? 1.41421356f : 1;
-                filled[next] = Math.Max(map.Height[next], level + map.CellSize * .00035f * distance);
+                // On flats the fill increment follows the meander field, so channels curve instead of running straight.
+                // A softer diagonal cost (1.2) keeps flat-ground paths from snapping to the grid axes.
+                float increment = map.CellSize * .00035f * (bias is null ? distance : (distance > 1 ? 1.2f : 1) * (1 + 80 * bias[next] / (map.CellSize * .30f)));
+                filled[next] = Math.Max(Routing(next), level + increment);
                 map.DrainageReceiver[next] = cell;
                 heap.Push(next, filled[next]);
             }
@@ -252,6 +259,20 @@ internal static class Hydrology
         }
     }
 
+    /// <summary>Routing bias can leave a receiver marginally above its donor after step limiting; fill those few cells.</summary>
+    private static void EnsureDownhillReceivers(SurfaceMap map, DrainageSolution solution)
+    {
+        for (int o = 0; o < solution.Count; o++)
+        {
+            int cell = solution.Order[o], receiver = map.DrainageReceiver[cell];
+            if (receiver < 0 || (map.LagoonBasin[cell] && map.LagoonBasin[receiver])) continue;
+            float minimum = map.Height[receiver] + .0005f;
+            if (map.Height[cell] >= minimum) continue;
+            map.Sediment[cell] += minimum - map.Height[cell];
+            map.Height[cell] = minimum;
+        }
+    }
+
     private static void RebalanceHeightMass(SurfaceMap map, double targetMass)
     {
         double currentMass = map.Height.Sum(x => (double)x);
@@ -361,5 +382,32 @@ internal static class Hydrology
             }
             priority = root.Priority; return root.Cell;
         }
+    }
+
+    /// <summary>
+    /// Routing-only height offset: smooth noise that fades out on steep ground, so channels wander
+    /// across plains (meanders) while mountain streams keep following the steepest descent.
+    /// Seeded from continentalness, which erosion never changes, so every solve sees the same field.
+    /// </summary>
+    internal static float[] MeanderBias(SurfaceMap map)
+    {
+        int n = map.Size;
+        ulong seed = PositionalHash.Mix((ulong)BitConverter.SingleToInt32Bits(map.Continentalness[n * n / 2]) ^ ((ulong)BitConverter.SingleToInt32Bits(map.Continentalness[n + 1]) << 32));
+        var low = new PerlinNoise(seed); var high = new PerlinNoise(seed ^ 0x5bd1e995UL);
+        double wavelength = 14 * map.CellSize;
+        var bias = new float[n * n];
+        for (int z = 0; z < n; z++) for (int x = 0; x < n; x++)
+        {
+            int i = map.Index(x, z);
+            float gx = map.Height[map.Index(Math.Min(n - 1, x + 1), z)] - map.Height[map.Index(Math.Max(0, x - 1), z)];
+            float gz = map.Height[map.Index(x, Math.Min(n - 1, z + 1))] - map.Height[map.Index(x, Math.Max(0, z - 1))];
+            float gradient = (float)Math.Sqrt(gx * gx + gz * gz) / (2 * map.CellSize);
+            float flatness = 1 - Math.Min(1, Math.Max(0, (gradient - .06f) / .45f));
+            double px = x * map.CellSize, pz = z * map.CellSize;
+            double noise = low.Sample(px / wavelength, pz / wavelength) + .35 * high.Sample(px * 2.3 / wavelength, pz * 2.3 / wavelength);
+            // Non-negative so filled levels never sit below the terrain: receivers stay downhill after filling.
+            bias[i] = (float)(Math.Max(0, noise + .15) * map.CellSize * .30 * flatness * flatness);
+        }
+        return bias;
     }
 }

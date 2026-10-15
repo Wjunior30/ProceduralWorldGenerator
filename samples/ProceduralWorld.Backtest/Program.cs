@@ -5,6 +5,20 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ProceduralWorld.Core;
 
+if (args.Length > 0 && args[0] == "render")
+{
+    // render <outputDir> [size] [seed]: one PNG per terrain style.
+    string renderDir = Path.GetFullPath(args.Length > 1 ? args[1] : Path.Combine("artifacts", "render"));
+    int renderSize = args.Length > 2 ? int.Parse(args[2]) : 257;
+    long renderSeed = args.Length > 3 ? long.Parse(args[3]) : 2026;
+    Directory.CreateDirectory(renderDir);
+    Parallel.ForEach(Enum.GetValues<TerrainStyle>(), style =>
+        WorldRender.Save(new WorldGenerator(renderSeed, TerrainPresetCatalog.Create(style, renderSize)).Generate().Surface,
+            Path.Combine(renderDir, $"{style.ToString().ToLowerInvariant()}.png")));
+    Console.WriteLine($"Rendered to {renderDir}");
+    return;
+}
+
 int[] sizes = args.Length > 0
     ? args[0].Split(',', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).Distinct().OrderBy(x => x).ToArray()
     : new[] { 65, 129 };
