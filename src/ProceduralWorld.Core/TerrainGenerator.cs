@@ -85,6 +85,7 @@ public sealed partial class TerrainGenerator
         Erosion.SuppressIsolatedApexes(map, maximumApex, 12);
         if (IsIsland) { ReopenIslandValleys(map); FlattenSites(map); } // after erosion so the valleys keep falling and the sites stay level
         Hydrology.Apply(map, _settings, IsIsland ? ReopenIslandValleys : null);
+        if (IsIsland) SettleSites(map); // towns and posts end level, whatever the rivers carved after the first levelling
         map.ErosionMassDelta = map.Height.Sum(x => (double)x) - massBeforeErosion;
         CalculateSlopes(map);
         CalculateCurvature(map, maximumGradient);

@@ -132,6 +132,35 @@ public sealed partial class TerrainGenerator
         for (int i = 0; i < map.Height.Length; i++) if (!levelled[i]) map.Height[i] += correction;
     }
 
+    /// <summary>Final levelling after hydrology (and the valley re-carving it triggers): every site and military post
+    /// becomes a flat plateau at the median of its own dry ground, easing out to the land around it. Channel and
+    /// water cells keep their bed, so a river through a town still flows. Without this, later carving left towns
+    /// with tens of metres of relief.</summary>
+    private void SettleSites(SurfaceMap map)
+    {
+        int n = map.Size;
+        foreach (var (cx, cz, radius) in map.Sites.Select(s => (s.X, s.Z, s.Radius)).Concat(map.Outposts.Select(o => (o.X, o.Z, o.Radius))).ToList())
+        {
+            var ground = new List<float>();
+            for (int dz = -radius; dz <= radius; dz++) for (int dx = -radius; dx <= radius; dx++)
+            {
+                int x = cx + dx, z = cz + dz; if (x < 0 || z < 0 || x >= n || z >= n || dx * dx + dz * dz > radius * radius) continue;
+                int i = map.Index(x, z); if (map.RiverChannel[i] || map.WaterDepth[i] > 0 || map.Ocean[i]) continue;
+                ground.Add(map.Height[i]);
+            }
+            if (ground.Count == 0) continue;
+            ground.Sort(); float target = Math.Max(ground[ground.Count / 2], _settings.SeaLevel + 1.5f);
+            int outer = (int)Math.Ceiling(radius * 1.5);
+            for (int dz = -outer; dz <= outer; dz++) for (int dx = -outer; dx <= outer; dx++)
+            {
+                int x = cx + dx, z = cz + dz; if (x < 0 || z < 0 || x >= n || z >= n) continue;
+                int i = map.Index(x, z); if (map.RiverChannel[i] || map.WaterDepth[i] > 0 || map.Ocean[i]) continue;
+                double w = Smooth(1.5, 1.0, Math.Sqrt(dx * dx + dz * dz) / radius); // flat out to the radius, eased beyond
+                map.Height[i] += (float)((target - map.Height[i]) * w);
+            }
+        }
+    }
+
     /// <summary>Road network: every site joins its nearest connected neighbour (a spanning tree), plus a second link
     /// for short detours so the network has loops. Rivers are bridged, shallow sea gets a causeway, deep sea never.</summary>
     private void BuildRoads(SurfaceMap map)

@@ -49,6 +49,10 @@ public sealed class WorldSettings
     public int OutpostsPerCity { get; set; } = 3;
     /// <summary>Island style: lay visible roads, tracks and bridges. Off still computes the travel routes (RoadLinks with their cells) for AI, without marking any ground.</summary>
     public bool Roads { get; set; } = true;
+    /// <summary>How engines should draw the ground: the smooth generated relief or flat-shaded low-poly facets (see FacetedSurface).</summary>
+    public TerrainSurfaceStyle SurfaceStyle { get; set; } = TerrainSurfaceStyle.Smooth;
+    /// <summary>Faceted style: triangle size in metres near the camera.</summary>
+    public float FacetSize { get; set; } = 8;
     /// <summary>Share of forest, jungle and taiga opened into meadows (0 = closed canopy).</summary>
     public double ForestClearings { get; set; } = .3;
     /// <summary>Multiplier on the vegetation cover (SurfaceMap.Vegetation).</summary>

@@ -14,6 +14,28 @@ Check(a.GenerationVersion == 7, "Quota-based biome shares publish generation ver
 Check(a.Fingerprint() == b.Fingerprint(), "Same seed must reproduce the same world.");
 Check(a.Fingerprint() != c.Fingerprint(), "Different seeds must produce different worlds.");
 Check(a.Surface.Height.Max() - a.Surface.Height.Min() > 100, "Terrain must have meaningful vertical relief.");
+{
+    // Faceted (low-poly) style: exact heights on corners and planar triangles, flat-shaded mesh, deterministic colours.
+    var facets = new FacetedSurface(a.Surface, 8, seed: 7); var again = new FacetedSurface(a.Surface, 8, seed: 7);
+    Check(Math.Abs(facets.Height(16, 24) - facets.Corner(2, 3)) < 1e-3f, "Faceted height must equal the corner height on lattice points.");
+    float mid = facets.Height(20, 24), ends = (facets.Corner(2, 3) + facets.Corner(3, 3)) * .5f;
+    Check(Math.Abs(mid - ends) < 1e-3f, "Faceted surface must be planar along facet edges.");
+    var mesh = facets.BuildChunk(0, 0, 64);
+    Check(mesh.Triangles == 8 * 8 * 2, "A 64 m chunk at 8 m facets must have 128 triangles.");
+    bool up = true, colours = true, onSurface = true;
+    for (int v = 0; v < mesh.Positions.Length / 3; v++)
+    {
+        up &= mesh.Normals[v * 3 + 1] > 0;
+        colours &= mesh.Colors[v * 3] is >= 0 and <= 1 && mesh.Colors[v * 3 + 1] is >= 0 and <= 1 && mesh.Colors[v * 3 + 2] is >= 0 and <= 1;
+        onSurface &= Math.Abs(facets.Height(mesh.Positions[v * 3], mesh.Positions[v * 3 + 2]) - mesh.Positions[v * 3 + 1]) < 1e-2f;
+    }
+    Check(up && colours && onSurface, "Faceted mesh: normals up, colours in range, vertices on the faceted surface.");
+    Check(mesh.Colors.SequenceEqual(again.BuildChunk(0, 0, 64).Colors), "Faceted colours must be deterministic.");
+    // Inside a triangle the height is the plane: the centroid equals the mean of its three corners.
+    float cx = (mesh.Positions[0] + mesh.Positions[3] + mesh.Positions[6]) / 3, cz = (mesh.Positions[2] + mesh.Positions[5] + mesh.Positions[8]) / 3, cy = (mesh.Positions[1] + mesh.Positions[4] + mesh.Positions[7]) / 3;
+    Check(Math.Abs(facets.Height(cx, cz) - cy) < 1e-2f, "Faceted height must follow the triangle plane.");
+    Check(FacetedSurface.WaterPlane(0, 0, 64, 16, 5).Triangles == 32, "Faceted water plane must have two triangles per cell.");
+}
 Check(a.Surface.Biomes.Distinct().Count() >= 5, "World must contain multiple biomes.");
 Biome[] terrestrialBiomes = ((Biome[])Enum.GetValues(typeof(Biome))).Where(x => x is not Biome.River and not Biome.Lake).ToArray();
 Check(terrestrialBiomes.All(a.Surface.Biomes.Contains), "Default generation must represent every terrestrial biome.");
