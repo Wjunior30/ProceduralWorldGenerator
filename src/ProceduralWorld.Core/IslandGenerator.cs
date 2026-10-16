@@ -7,13 +7,16 @@ public sealed partial class TerrainGenerator
 {
     private const int RiverPoints = 96;
     private const int TributaryPoints = 24;
-    private readonly List<((double X, double Z)[] Course, double JoinS)> _tributaries = new();
+    private readonly List<((double X, double Z)[] Course, double JoinS, double Bend)> _tributaries = new();
     private double CoastRadius => _settings.CoastRadius;
     private double RiverStart => _settings.RiverStart;
     private double RiverLength => _settings.RiverLength;
     private (double X, double Z)[] _islandRiver = Array.Empty<(double, double)>();
     private double _riverBearing;
     private bool[] _riverBed = Array.Empty<bool>();
+    // Valley-floor position of each cell along its course (-1 = none) when side rivers are carved: main course points
+    // 0..RiverPoints-1, then each side river's points, as fractional indices.
+    private float[] _valleyAt = Array.Empty<float>();
 
     private bool IsIsland => _settings.TerrainStyle == TerrainStyle.Island;
 
@@ -42,14 +45,24 @@ public sealed partial class TerrainGenerator
             double hx = join.X + (-fz * side * .85 - fx * .5) * length, hz = join.Z + (fx * side * .85 - fz * .5) * length;
             double cx = hx / extent - .5, cz = hz / extent - .5, d = Math.Sqrt(cx * cx + cz * cz), limit = CoastRadius - .07;
             if (d > limit) { hx = (.5 + cx * limit / d) * extent; hz = (.5 + cz * limit / d) * extent; }
-            var course = new (double X, double Z)[TributaryPoints]; double bend = ((_seed >> (5 + t)) % 100 / 100.0 - .5) * .25 * length;
-            for (int k = 0; k < TributaryPoints; k++)
-            {
-                double s = k / (TributaryPoints - 1.0), curve = Math.Sin(s * Math.PI) * bend;
-                course[k] = (hx + (join.X - hx) * s - fz * curve, hz + (join.Z - hz) * s + fx * curve);
-            }
-            _tributaries.Add((course, joinS));
+            double bend = ((_seed >> (5 + t)) % 100 / 100.0 - .5) * .25;
+            _tributaries.Add((TributaryCourse((hx, hz), j, bend), joinS, bend));
         }
+    }
+
+    // A side river from its head to main-course point j, bowed sideways by bend (share of its length).
+    private (double X, double Z)[] TributaryCourse((double X, double Z) head, int j, double bend)
+    {
+        var join = _islandRiver[j]; var before = _islandRiver[j - 1]; var after = _islandRiver[j + 1];
+        double fx = after.X - before.X, fz = after.Z - before.Z, fl = Math.Sqrt(fx * fx + fz * fz); fx /= fl; fz /= fl;
+        double length = Math.Sqrt((join.X - head.X) * (join.X - head.X) + (join.Z - head.Z) * (join.Z - head.Z));
+        var course = new (double X, double Z)[TributaryPoints];
+        for (int k = 0; k < TributaryPoints; k++)
+        {
+            double s = k / (TributaryPoints - 1.0), curve = Math.Sin(s * Math.PI) * bend * length;
+            course[k] = (head.X + (join.X - head.X) * s - fz * curve, head.Z + (join.Z - head.Z) * s + fx * curve);
+        }
+        return course;
     }
 
     private double IslandHeight(double h, double px, double pz, double extent, double featureA, double featureB)
@@ -105,26 +118,73 @@ public sealed partial class TerrainGenerator
         int sz = Math.Max(0, Math.Min(n - 1, (int)Math.Round(_islandRiver[2].Z / map.CellSize)));
         map.RiverSource = map.Index(sx, sz);
         float[] original = (float[])map.Height.Clone();
+        if (_tributaries.Count > 0) { _valleyAt = new float[original.Length]; Array.Fill(_valleyAt, -1); }
+        // Lowest original ground within a radius (cells) of a course point.
+        double Ground((double X, double Z) p, int radius)
+        {
+            int cx = (int)Math.Round(p.X / map.CellSize), cz = (int)Math.Round(p.Z / map.CellSize); double low = double.MaxValue;
+            for (int z = Math.Max(0, cz - radius); z <= Math.Min(n - 1, cz + radius); z++)
+                for (int x = Math.Max(0, cx - radius); x <= Math.Min(n - 1, cx + radius); x++)
+                    if ((x - cx) * (x - cx) + (z - cz) * (z - cz) <= radius * radius) low = Math.Min(low, original[map.Index(x, z)]);
+            return low < double.MaxValue ? low : original[map.Index(Math.Max(0, Math.Min(n - 1, cx)), Math.Max(0, Math.Min(n - 1, cz)))];
+        }
+        // With side rivers the floors also stay below the ground on both banks (bed plus two cells), so a valley that
+        // crosses a slope is a real trough and the drained main river and side rivers keep to it.
+        bool trough = _tributaries.Count > 0;
         // Valley floor along the course: never above the ground it crosses, always descending, deep inside the canyon.
         var floors = new double[RiverPoints];
         for (int k = 0; k < RiverPoints; k++)
         {
             double s = k / (RiverPoints - 1.0); var p = _islandRiver[k];
-            int cx = Math.Max(0, Math.Min(n - 1, (int)Math.Round(p.X / map.CellSize))), cz = Math.Max(0, Math.Min(n - 1, (int)Math.Round(p.Z / map.CellSize)));
             double depth = 4 + 50 * CanyonAt(p, extent);
-            double floor = Math.Min(original[map.Index(cx, cz)] - depth, k > 0 ? floors[k - 1] - .05 : double.MaxValue);
+            int reach = trough ? (int)Math.Ceiling(1.6 + 2.4 * s + 4) : 0;
+            double floor = Math.Min(Ground(p, reach) - depth, k > 0 ? floors[k - 1] - .05 : double.MaxValue);
             floors[k] = s < coastS ? Math.Max(floor, sea + .4) : sea - 3;
         }
         for (int k = 1; k < RiverPoints; k++) floors[k] = Math.Min(floors[k], floors[k - 1]);
-        // Each side river's floor: below the ground all along its course and always falling, down to just above the main river.
+        // Side-valley bed plus two cells, plus half the gap between course points so the sampled ground covers the valley.
+        int TributaryReach(int k) => (int)Math.Ceiling(.8 + .6 * k / (TributaryPoints - 1.0) + 2) + 2;
+        // Re-plan each side river on the real ground: slide it (head and mouth) along the main valley, nearest first, and
+        // shorten it if needed, until the whole course stands above the mouth, so it can only drain into the main river.
+        int lastJoin = Math.Max(1, Math.Min(RiverPoints - 2, (int)((coastS - .05) * (RiverPoints - 1))));
+        for (int r = 0; r < _tributaries.Count; r++)
+        {
+            var (course, joinS, bend) = _tributaries[r];
+            int j0 = Math.Max(1, Math.Min(RiverPoints - 2, (int)Math.Round(joinS * (RiverPoints - 1))));
+            var origin = _islandRiver[j0]; bool placed = false;
+            // Nearest mouths first, downstream before upstream.
+            var joins = Enumerable.Range(RiverPoints / 16, lastJoin - RiverPoints / 16 + 1).OrderBy(j => Math.Abs(j - j0) * 2 + (j < j0 ? 1 : 0)).ToArray();
+            for (double scale = 1; scale > .3 && !placed; scale -= .15)
+            {
+                foreach (int j in joins)
+                {
+                    double mouth = floors[j] + .6;
+                    var head = (_islandRiver[j].X + (course[0].X - origin.X) * scale, _islandRiver[j].Z + (course[0].Z - origin.Z) * scale);
+                    var candidate = TributaryCourse(head, j, bend);
+                    // Keep mouth and head well above the sea: the final mass rebalance can lower low ground by several metres.
+                    if (mouth < sea + 30 || Ground(candidate[1], TributaryReach(1)) - 3 < mouth + 4) continue;
+                    bool above = true;
+                    for (int k = 0; k < TributaryPoints && above; k++) above = Ground(candidate[k], TributaryReach(k)) >= mouth + .5;
+                    // ...and clear of the main valley downstream of its mouth, so it cannot spill into a lower reach.
+                    for (int k = 0; k < TributaryPoints - 4 && above; k++)
+                        for (int q = j + 5; q < RiverPoints && above; q++)
+                        {
+                            double gx = candidate[k].X - _islandRiver[q].X, gz = candidate[k].Z - _islandRiver[q].Z, clear = (8 + TributaryReach(k)) * map.CellSize;
+                            above = gx * gx + gz * gz > clear * clear;
+                        }
+                    if (above) { _tributaries[r] = (candidate, j / (RiverPoints - 1.0), bend); placed = true; break; }
+                }
+            }
+        }
+        // Each side river's floor: below the ground all along its course and falling on an even grade from its head to just above the main river.
         var tributaryFloors = _tributaries.Select(t =>
         {
             double mouth = floors[Math.Min(RiverPoints - 1, (int)Math.Round(t.JoinS * (RiverPoints - 1)))] + .6, level = double.MaxValue;
+            double head = Ground(t.Course[0], TributaryReach(0)) - 3;
             var f = new double[TributaryPoints];
             for (int k = 0; k < TributaryPoints; k++)
             {
-                var p = t.Course[k]; int px = Math.Max(0, Math.Min(n - 1, (int)Math.Round(p.X / map.CellSize))), pz = Math.Max(0, Math.Min(n - 1, (int)Math.Round(p.Z / map.CellSize)));
-                level = Math.Min(level - .05, original[map.Index(px, pz)] - 3);
+                level = Math.Min(Math.Min(level - .05, Ground(t.Course[k], TributaryReach(k)) - 3), head + (mouth - head) * k / (TributaryPoints - 1.0));
                 f[k] = Math.Max(mouth, level);
             }
             return f;
@@ -150,6 +210,7 @@ public sealed partial class TerrainGenerator
                 double profile = gorge ? Math.Sqrt(w) : w * w * (3 - 2 * w);
                 int i = map.Index(x, z); double h = original[i];
                 if (h > floor) map.Height[i] = (float)(floor + (h - floor) * profile);
+                if (_valleyAt.Length > 0 && distance <= halfWidth) _valleyAt[i] = (float)(s * (RiverPoints - 1));
                 // Side rivers: narrow valleys whose floor falls from the head to just above the main river where they join.
                 for (int r = 0; r < _tributaries.Count; r++)
                 {
@@ -168,13 +229,14 @@ public sealed partial class TerrainGenerator
                     double tFloor = f[q0] + (f[q0 + 1] - f[q0]) * (at - q0);
                     double current = map.Height[i];
                     if (current > tFloor) map.Height[i] = (float)Math.Min(current, tFloor + (current - tFloor) * tw * tw * (3 - 2 * tw));
+                    if (_valleyAt.Length > 0 && _valleyAt[i] < 0 && tw <= 0) _valleyAt[i] = (float)(RiverPoints + r * TributaryPoints + at);
                 }
             }
         });
         if (_tributaries.Count > 0)
         {
             map.TributarySources.Clear();
-            foreach (var (course, _) in _tributaries)
+            foreach (var (course, _, _) in _tributaries)
             {
                 int hx = Math.Max(1, Math.Min(n - 2, (int)Math.Round(course[1].X / map.CellSize))), hz = Math.Max(1, Math.Min(n - 2, (int)Math.Round(course[1].Z / map.CellSize)));
                 map.TributarySources.Add(map.Index(hx, hz));
@@ -182,6 +244,37 @@ public sealed partial class TerrainGenerator
         }
         _riverBed = new bool[map.Height.Length];
         for (int i = 0; i < original.Length; i++) _riverBed[i] = map.Height[i] < original[i] - .5f;
+        if (_tributaries.Count > 0) map.PlannedRiverBed = _riverBed;
+    }
+
+    /// <summary>Slope relaxation slumps the gorge walls into the bed and dams it; with side rivers, lower every
+    /// valley-floor cell to the lowest bed upstream so each valley keeps falling to the sea or the main river.</summary>
+    private void ReopenIslandValleys(SurfaceMap map)
+    {
+        if (_valleyAt.Length == 0) return;
+        var low = new float[RiverPoints + _tributaries.Count * TributaryPoints];
+        Array.Fill(low, float.MaxValue);
+        for (int i = 0; i < _valleyAt.Length; i++) if (_valleyAt[i] >= 0) { int k = (int)Math.Round(_valleyAt[i]); low[k] = Math.Min(low[k], map.Height[i]); }
+        Fall(0, RiverPoints);
+        for (int r = 0; r < _tributaries.Count; r++) Fall(RiverPoints + r * TributaryPoints, TributaryPoints);
+        // A point's lowest bed lies near its downstream edge, so interpolate the levels half a point downstream:
+        // only dams are cut, and the bed keeps its slope instead of turning into flat steps with drops between them.
+        for (int i = 0; i < _valleyAt.Length; i++)
+        {
+            float at = _valleyAt[i]; if (at < 0) continue;
+            int start = at < RiverPoints ? 0 : RiverPoints + (int)((at - RiverPoints) / TributaryPoints) * TributaryPoints;
+            int count = start == 0 ? RiverPoints : TributaryPoints;
+            float t = Math.Max(0, Math.Min(count - 1, at - start - .5f)); int k0 = Math.Min(count - 2, (int)t);
+            map.Height[i] = Math.Min(map.Height[i], low[start + k0] + (low[start + k0 + 1] - low[start + k0]) * (t - k0));
+        }
+
+        void Fall(int start, int count)
+        {
+            float level = float.MaxValue;
+            for (int k = start; k < start + count; k++) low[k] = level = Math.Min(low[k], level == float.MaxValue ? level : level - .05f);
+            // Points with no bed cell take the level of the next one downstream.
+            for (int k = start + count - 2; k >= start; k--) if (low[k] == float.MaxValue) low[k] = low[k + 1];
+        }
     }
 
     private double CanyonAt((double X, double Z) p, double extent)

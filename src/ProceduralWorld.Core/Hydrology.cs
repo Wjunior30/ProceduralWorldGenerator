@@ -10,7 +10,8 @@ internal static class Hydrology
         public int Count { get; }
     }
 
-    public static void Apply(SurfaceMap map, WorldSettings settings)
+    /// <param name="keepValleys">Optional terrain hook run after each slope relaxation (island side rivers re-open their valleys).</param>
+    public static void Apply(SurfaceMap map, WorldSettings settings, Action<SurfaceMap>? keepValleys = null)
     {
         Array.Clear(map.Flow, 0, map.Flow.Length);
         Array.Clear(map.WaterDepth, 0, map.WaterDepth.Length);
@@ -36,10 +37,12 @@ internal static class Hydrology
         DrainageSolution second = Solve(map, bias);
         FillClosedDepressions(map, second, preserveLakes);
         Erosion.RelaxSlopes(map, .90f, 32);
+        keepValleys?.Invoke(map);
         DrainageSolution settled = Solve(map, bias);
         FillClosedDepressions(map, settled, preserveLakes);
         Erosion.LimitExtremeSteps(map, map.CellSize * 1.80f, 24);
         Erosion.SuppressIsolatedApexes(map, settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f, 4);
+        keepValleys?.Invoke(map);
         DrainageSolution final = Solve(map, bias);
         EnsureDownhillReceivers(map, final);
         MarkMainRiver(map, final, settings);
@@ -440,7 +443,7 @@ internal static class Hydrology
             double px = x * map.CellSize, pz = z * map.CellSize;
             double noise = low.Sample(px / wavelength, pz / wavelength) + .35 * high.Sample(px * 2.3 / wavelength, pz * 2.3 / wavelength);
             // Non-negative so filled levels never sit below the terrain: receivers stay downhill after filling.
-            bias[i] = (float)(Math.Max(0, noise + .15) * map.CellSize * .30 * flatness * flatness);
+            bias[i] = map.PlannedRiverBed?[i] == true ? 0 : (float)(Math.Max(0, noise + .15) * map.CellSize * .30 * flatness * flatness);
         }
         return bias;
     }

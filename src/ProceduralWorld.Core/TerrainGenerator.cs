@@ -83,8 +83,8 @@ public sealed partial class TerrainGenerator
         float maximumApex = _settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f;
         Erosion.RelaxSlopes(map, maximumGradient, 140);
         Erosion.SuppressIsolatedApexes(map, maximumApex, 12);
-        if (IsIsland) FlattenSites(map); // after erosion so the sites stay level
-        Hydrology.Apply(map, _settings);
+        if (IsIsland) { ReopenIslandValleys(map); FlattenSites(map); } // after erosion so the valleys keep falling and the sites stay level
+        Hydrology.Apply(map, _settings, IsIsland ? ReopenIslandValleys : null);
         map.ErosionMassDelta = map.Height.Sum(x => (double)x) - massBeforeErosion;
         CalculateSlopes(map);
         CalculateCurvature(map, maximumGradient);

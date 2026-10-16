@@ -45,6 +45,10 @@ public sealed class WorldSettings
     public double RiverLength { get; set; } = .48;
     /// <summary>Island style: number of short side rivers joining the main one (0 = none).</summary>
     public int Tributaries { get; set; }
+    /// <summary>Island style: military posts on random flat ground 350-800 m around each settled place (0 = none).</summary>
+    public int OutpostsPerCity { get; set; } = 3;
+    /// <summary>Island style: lay visible roads, tracks and bridges. Off still computes the travel routes (RoadLinks with their cells) for AI, without marking any ground.</summary>
+    public bool Roads { get; set; } = true;
     /// <summary>Share of forest, jungle and taiga opened into meadows (0 = closed canopy).</summary>
     public double ForestClearings { get; set; } = .3;
     /// <summary>Multiplier on the vegetation cover (SurfaceMap.Vegetation).</summary>
@@ -113,6 +117,10 @@ public sealed class SurfaceMap
     public int RiverSource { get; set; } = -1;
     /// <summary>Heads of the short side rivers (island style); hydrology traces each down to the main river.</summary>
     public List<int> TributarySources { get; } = new();
+    /// <summary>Military posts around the settled places (island style), each on its own levelled flat spot.</summary>
+    public List<OutpostSite> Outposts { get; } = new();
+    /// <summary>Carved island valleys (set only with side rivers): drainage routing skips the meander bias there so rivers keep to them.</summary>
+    internal bool[]? PlannedRiverBed { get; set; }
     public Biome[] Biomes { get; }
     public GeologicalIdentity[] Geology { get; }
     public int Index(int x, int z) => checked(z * Size + x);
@@ -202,6 +210,8 @@ public sealed class GeneratedWorld
 public enum SiteKind { Village, Mine, Fishing, Farm, HuntersCamp, Outpost, Ruins, Town, Port, BanditCamp, Nest }
 /// <summary>A flattened place in grid cells; Radius in cells.</summary>
 public sealed record Site(SiteKind Kind, int X, int Z, int Radius, int Tier = 1);
+/// <summary>A levelled military post on flat ground near a settlement (Site = index into SurfaceMap.Sites); grid cells.</summary>
+public sealed record OutpostSite(int Site, int X, int Z, int Radius);
 /// <summary>Road between two sites (indexes into SurfaceMap.Sites); Length in metres; Paved for the asphalt highways; Cells is the route.</summary>
 public sealed record RoadLink(int From, int To, float Length, bool Paved = false, IReadOnlyList<int>? Cells = null);
 

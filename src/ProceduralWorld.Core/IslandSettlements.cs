@@ -27,11 +27,25 @@ public sealed partial class TerrainGenerator
         var riverDistance = Distance(map, i => _riverBed[i]);
         var random = new Random((int)(_seed ^ (_seed >> 32)));
         int spacing = Math.Max(7, (int)(n * .068)), stride = Math.Max(2, n / 128);
+        // Only the main landmass (reachable from the centre over land or wadeable shallows) may hold places: an islet across deep sea gets no road.
+        var mainland = new bool[map.Height.Length]; var fill = new Queue<int>(); int centre = map.Index(n / 2, n / 2);
+        mainland[centre] = true; fill.Enqueue(centre);
+        while (fill.Count > 0)
+        {
+            int c = fill.Dequeue(), cx = c % n, cz = c / n;
+            for (int k = 0; k < 4; k++)
+            {
+                int x = cx + (k == 0 ? 1 : k == 1 ? -1 : 0), z = cz + (k == 2 ? 1 : k == 3 ? -1 : 0);
+                if (x < 0 || z < 0 || x >= n || z >= n) continue;
+                int j = map.Index(x, z); if (mainland[j] || map.Height[j] < sea + 1) continue;
+                mainland[j] = true; fill.Enqueue(j);
+            }
+        }
         var candidates = new List<(int X, int Z, Zone[] Zones, double Flat)>();
         for (int z = 14; z < n - 14; z += stride) for (int x = 14; x < n - 14; x += stride)
         {
             int i = map.Index(x, z); float h = map.Height[i];
-            if (_riverBed[i] || h < sea + 4) continue;
+            if (_riverBed[i] || h < sea + 4 || !mainland[i]) continue;
             double slope = Math.Max(Math.Abs(map.Height[i + 2] - map.Height[i - 2]), Math.Abs(map.Height[i + 2 * n] - map.Height[i - 2 * n])) / (4 * map.CellSize);
             if (slope > .22) continue;
             double nx = (double)x / (n - 1) - .5, nz = (double)z / (n - 1) - .5, d = Math.Sqrt(nx * nx + nz * nz);
@@ -64,10 +78,35 @@ public sealed partial class TerrainGenerator
             map.Sites.Add(new Site(kind, best.Value.X, best.Value.Z, scaled, tier));
         }
 
-        double massBefore = map.Height.Sum(h => (double)h); var levelled = new bool[map.Height.Length];
-        foreach (var site in map.Sites)
+        // Military posts: for each settled place, random flat candidates 350-800 m away, spread around it, clear of other places.
+        map.Outposts.Clear();
+        int postRadius = Math.Max(2, (int)Math.Round(60 / map.CellSize)), near = (int)(350 / map.CellSize), far = (int)(800 / map.CellSize);
+        for (int s = 0; s < map.Sites.Count; s++)
         {
-            int cx = site.X, cz = site.Z, radius = site.Radius;
+            var home = map.Sites[s]; if (home.Tier < 1) continue;
+            var chosen = new List<(int X, int Z)>();
+            for (int k = 0; k < _settings.OutpostsPerCity; k++)
+            {
+                (int X, int Z)? best = null; double bestScore = double.MinValue;
+                foreach (var c in candidates)
+                {
+                    double d = Math.Sqrt((c.X - home.X) * (c.X - home.X) + (c.Z - home.Z) * (c.Z - home.Z));
+                    if (d < near || d > far) continue;
+                    if (map.Sites.Any(o => (o.X - c.X) * (o.X - c.X) + (o.Z - c.Z) * (o.Z - c.Z) < (o.Radius + postRadius + 6) * (o.Radius + postRadius + 6))) continue;
+                    if (map.Outposts.Concat(chosen.Select(p => new OutpostSite(s, p.X, p.Z, postRadius))).Any(o => (o.X - c.X) * (o.X - c.X) + (o.Z - c.Z) * (o.Z - c.Z) < 15 * 15)) continue;
+                    double angle = Math.Atan2(c.Z - home.Z, c.X - home.X), spread = chosen.Count == 0 ? Math.PI : chosen.Min(p => Math.Abs(Math.IEEERemainder(angle - Math.Atan2(p.Z - home.Z, p.X - home.X), 2 * Math.PI)));
+                    double score = c.Flat * 2 + spread + random.NextDouble() * 1.5; // flat, spread around the town, and different every world
+                    if (score > bestScore) { bestScore = score; best = (c.X, c.Z); }
+                }
+                if (best is null) break;
+                chosen.Add(best.Value);
+            }
+            foreach (var p in chosen) map.Outposts.Add(new OutpostSite(s, p.X, p.Z, postRadius));
+        }
+
+        double massBefore = map.Height.Sum(h => (double)h); var levelled = new bool[map.Height.Length];
+        foreach (var (cx, cz, radius) in map.Sites.Select(x => (x.X, x.Z, x.Radius)).Concat(map.Outposts.Select(o => (o.X, o.Z, o.Radius))).ToList())
+        {
             double sum = 0; int count = 0;
             for (int dz = -radius; dz <= radius; dz++) for (int dx = -radius; dx <= radius; dx++)
             {
@@ -80,6 +119,8 @@ public sealed partial class TerrainGenerator
             {
                 int x = cx + dx, z = cz + dz; if (x < 0 || z < 0 || x >= n || z >= n) continue;
                 int i = map.Index(x, z); if (_riverBed[i]) continue;
+                // With side rivers keep a lip along every valley: a site levelled below the bed would breach its wall.
+                if (_valleyAt.Length > 0 && riverDistance[i] <= 2 && target < map.Height[i]) continue;
                 double w = Smooth(1.6, .75, Math.Sqrt(dx * dx + dz * dz) / radius);
                 map.Height[i] += (float)((target - map.Height[i]) * w);
                 if (w > 0) levelled[i] = true;
@@ -118,22 +159,68 @@ public sealed partial class TerrainGenerator
             int b = Enumerable.Range(0, count).Where(x => x != a && !links.Contains((Math.Min(a, x), Math.Max(a, x)))).OrderBy(x => Dist(a, x)).FirstOrDefault();
             if (b != a && Dist(a, b) < map.Size * .28) links.Add((Math.Min(a, b), Math.Max(a, b)));
         }
-        var router = new RoadRouter(map);
-        foreach (var (a, b) in links.OrderBy(l => l.Item1).ThenBy(l => l.Item2))
+        var router = new RoadRouter(map) { Bank = _valleyAt.Length > 0 ? RiverBanks(map) : null };
+        var reached = new HashSet<int>(); var ordered = links.OrderBy(l => l.Item1).ThenBy(l => l.Item2).ToList();
+        for (int li = 0; li < ordered.Count; li++)
         {
+            var (a, b) = ordered[li];
             var path = router.Find(map.Index(map.Sites[a].X, map.Sites[a].Z), map.Index(map.Sites[b].X, map.Sites[b].Z));
-            if (path is null) continue;
+            if (path is null)
+            {
+                // Blocked: try the next nearest place for whichever end still has no road (each place keeps at least one link).
+                foreach (int lonely in new[] { a, b }.Where(s => !reached.Contains(s) && !ordered.Skip(li + 1).Any(l => l.Item1 == s || l.Item2 == s)))
+                {
+                    int other = Enumerable.Range(0, count).Where(x => x != lonely && !links.Contains((Math.Min(lonely, x), Math.Max(lonely, x)))).OrderBy(x => Dist(lonely, x)).Take(4).FirstOrDefault(x => x != lonely);
+                    if (other != lonely && links.Add((Math.Min(lonely, other), Math.Max(lonely, other)))) ordered.Add((Math.Min(lonely, other), Math.Max(lonely, other)));
+                }
+                continue;
+            }
+            reached.Add(a); reached.Add(b);
             float length = 0;
             for (int k = 0; k < path.Count; k++)
             {
-                map.Road[path[k]] = true;
+                if (_settings.Roads) map.Road[path[k]] = true;
                 if (k > 0) length += map.CellSize * (path[k] % map.Size != path[k - 1] % map.Size && path[k] / map.Size != path[k - 1] / map.Size ? 1.4142f : 1);
             }
             // Highways join settled places (tier 1+: towns, villages, port, farms, outposts); the rest are dirt tracks.
-            bool paved = map.Sites[a].Tier >= 1 && map.Sites[b].Tier >= 1;
+            bool paved = _settings.Roads && map.Sites[a].Tier >= 1 && map.Sites[b].Tier >= 1;
             if (paved) foreach (int c in path) map.PavedRoad[c] = true;
             map.RoadLinks.Add(new RoadLink(a, b, length, paved, path));
         }
+        // Each military post gets a dirt track to its town.
+        foreach (var post in map.Outposts)
+        {
+            var home = map.Sites[post.Site];
+            var track = router.Find(map.Index(post.X, post.Z), map.Index(home.X, home.Z));
+            if (track != null && _settings.Roads) foreach (int c in track) map.Road[c] = true;
+        }
+        // Any place still without a road gets a long bridge to the nearest connected place, so every site is reachable.
+        router.BridgeDeepWater = true;
+        foreach (int lonely in Enumerable.Range(0, count).Where(s => !reached.Contains(s)).ToList())
+        {
+            int other = reached.OrderBy(x => Dist(lonely, x)).DefaultIfEmpty(-1).First(); if (other < 0) break;
+            var path = router.Find(map.Index(map.Sites[lonely].X, map.Sites[lonely].Z), map.Index(map.Sites[other].X, map.Sites[other].Z));
+            if (path is null) continue;
+            float length = 0;
+            for (int k = 0; k < path.Count; k++) { if (_settings.Roads) map.Road[path[k]] = true; if (k > 0) length += map.CellSize * (path[k] % map.Size != path[k - 1] % map.Size && path[k] / map.Size != path[k - 1] / map.Size ? 1.4142f : 1); }
+            map.RoadLinks.Add(new RoadLink(Math.Min(lonely, other), Math.Max(lonely, other), length, false, path)); reached.Add(lonely);
+        }
+    }
+
+    // Dry land cells touching inland river water.
+    private static bool[] RiverBanks(SurfaceMap map)
+    {
+        int n = map.Size; var bank = new bool[map.Height.Length];
+        for (int z = 1; z < n - 1; z++) for (int x = 1; x < n - 1; x++)
+        {
+            int i = map.Index(x, z); if (map.WaterDepth[i] > 0 || map.Ocean[i]) continue;
+            for (int dz = -1; dz <= 1 && !bank[i]; dz++) for (int dx = -1; dx <= 1; dx++)
+            {
+                int j = map.Index(x + dx, z + dz);
+                if (map.WaterDepth[j] > 0 && !map.Ocean[j]) { bank[i] = true; break; }
+            }
+        }
+        return bank;
     }
 
     // Array-based A* reused across the network; existing roads are cheap so links merge into shared trunks.
@@ -142,10 +229,16 @@ public sealed partial class TerrainGenerator
         private readonly SurfaceMap _map; private readonly float[] _g; private readonly int[] _parent, _stamp, _closed; private int _search;
         public RoadRouter(SurfaceMap map) { _map = map; int c = map.Height.Length; _g = new float[c]; _parent = new int[c]; _stamp = new int[c]; _closed = new int[c]; }
 
-        private float Cost(int i) => _map.Ocean[i] ? (_map.WaterDepth[i] < 2.5f ? 60 : float.PositiveInfinity) // shallow sea: causeway
+        /// <summary>Last resort for a place cut off by deep water: allow a long, very expensive bridge.</summary>
+        public bool BridgeDeepWater;
+        /// <summary>Dry cells beside a river (its rendered water reaches them): costly, so roads cross the river instead of hugging it.</summary>
+        public bool[]? Bank;
+        private float Cost(int i) => _map.Ocean[i] ? (_map.WaterDepth[i] < 2.5f ? 60 : BridgeDeepWater ? 150 : float.PositiveInfinity) // shallow sea: causeway
             : _map.Biomes[i] == Biome.Snow ? 40
             : _map.WaterDepth[i] > 0 ? 20 // bridge
+            : Bank?[i] == true ? 12
             : _map.Road[i] ? .6f
+            : _map.Slope[i] > .9f ? 400 // cliffs only as a last resort: a road there would be a ramp nobody can walk
             : 1 + _map.Slope[i] * 12;
 
         public List<int>? Find(int start, int goal)
