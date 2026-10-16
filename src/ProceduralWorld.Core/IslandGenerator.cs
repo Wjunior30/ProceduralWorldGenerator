@@ -6,7 +6,11 @@ namespace ProceduralWorld.Core;
 public sealed partial class TerrainGenerator
 {
     private const int RiverPoints = 96;
-    private const double CoastRadius = .44, RiverStart = .04, RiverLength = .48;
+    private const int TributaryPoints = 24;
+    private readonly List<((double X, double Z)[] Course, double JoinS)> _tributaries = new();
+    private double CoastRadius => _settings.CoastRadius;
+    private double RiverStart => _settings.RiverStart;
+    private double RiverLength => _settings.RiverLength;
     private (double X, double Z)[] _islandRiver = Array.Empty<(double, double)>();
     private double _riverBearing;
     private bool[] _riverBed = Array.Empty<bool>();
@@ -24,6 +28,27 @@ public sealed partial class TerrainGenerator
             double s = k / (RiverPoints - 1.0), radius = (RiverStart + RiverLength * s) * extent;
             double lateral = (Math.Sin(s * Math.PI * 4.5 + wiggle) * .055 + Math.Sin(s * Math.PI * 9 + wiggle * 2) * .015) * Math.Min(1, s * 4) * extent;
             _islandRiver[k] = (extent * .5 + dx * radius - dz * lateral, extent * .5 + dz * radius + dx * lateral);
+        }
+        // Short side rivers: each rises inland on alternating banks and meets the main river at an angle, downstream.
+        _tributaries.Clear();
+        int count = _settings.Tributaries; double coastS = (CoastRadius - RiverStart) / RiverLength;
+        for (int t = 0; t < count; t++)
+        {
+            double joinS = Math.Min(coastS - .08, .18 + (coastS - .3) * (t + .5) / count);
+            int j = Math.Max(1, Math.Min(RiverPoints - 2, (int)Math.Round(joinS * (RiverPoints - 1))));
+            var join = _islandRiver[j]; var before = _islandRiver[j - 1]; var after = _islandRiver[j + 1];
+            double fx = after.X - before.X, fz = after.Z - before.Z, fl = Math.Sqrt(fx * fx + fz * fz); fx /= fl; fz /= fl;
+            double side = t % 2 == 0 ? 1 : -1, length = (.07 + (_seed >> (8 + t * 3)) % 50 / 1000.0) * extent;
+            double hx = join.X + (-fz * side * .85 - fx * .5) * length, hz = join.Z + (fx * side * .85 - fz * .5) * length;
+            double cx = hx / extent - .5, cz = hz / extent - .5, d = Math.Sqrt(cx * cx + cz * cz), limit = CoastRadius - .07;
+            if (d > limit) { hx = (.5 + cx * limit / d) * extent; hz = (.5 + cz * limit / d) * extent; }
+            var course = new (double X, double Z)[TributaryPoints]; double bend = ((_seed >> (5 + t)) % 100 / 100.0 - .5) * .25 * length;
+            for (int k = 0; k < TributaryPoints; k++)
+            {
+                double s = k / (TributaryPoints - 1.0), curve = Math.Sin(s * Math.PI) * bend;
+                course[k] = (hx + (join.X - hx) * s - fz * curve, hz + (join.Z - hz) * s + fx * curve);
+            }
+            _tributaries.Add((course, joinS));
         }
     }
 
@@ -91,6 +116,19 @@ public sealed partial class TerrainGenerator
             floors[k] = s < coastS ? Math.Max(floor, sea + .4) : sea - 3;
         }
         for (int k = 1; k < RiverPoints; k++) floors[k] = Math.Min(floors[k], floors[k - 1]);
+        // Each side river's floor: below the ground all along its course and always falling, down to just above the main river.
+        var tributaryFloors = _tributaries.Select(t =>
+        {
+            double mouth = floors[Math.Min(RiverPoints - 1, (int)Math.Round(t.JoinS * (RiverPoints - 1)))] + .6, level = double.MaxValue;
+            var f = new double[TributaryPoints];
+            for (int k = 0; k < TributaryPoints; k++)
+            {
+                var p = t.Course[k]; int px = Math.Max(0, Math.Min(n - 1, (int)Math.Round(p.X / map.CellSize))), pz = Math.Max(0, Math.Min(n - 1, (int)Math.Round(p.Z / map.CellSize)));
+                level = Math.Min(level - .05, original[map.Index(px, pz)] - 3);
+                f[k] = Math.Max(mouth, level);
+            }
+            return f;
+        }).ToArray();
         Parallel.For(0, n, z =>
         {
             for (int x = 0; x < n; x++)
@@ -112,8 +150,36 @@ public sealed partial class TerrainGenerator
                 double profile = gorge ? Math.Sqrt(w) : w * w * (3 - 2 * w);
                 int i = map.Index(x, z); double h = original[i];
                 if (h > floor) map.Height[i] = (float)(floor + (h - floor) * profile);
+                // Side rivers: narrow valleys whose floor falls from the head to just above the main river where they join.
+                for (int r = 0; r < _tributaries.Count; r++)
+                {
+                    var course = _tributaries[r].Course;
+                    double tBest = double.MaxValue, tS = 0;
+                    for (int k = 0; k < TributaryPoints - 1; k++)
+                    {
+                        var a = course[k]; var b = course[k + 1];
+                        double vx = b.X - a.X, vz = b.Z - a.Z, t = Math.Max(0, Math.Min(1, ((px - a.X) * vx + (pz - a.Z) * vz) / (vx * vx + vz * vz)));
+                        double ex = a.X + vx * t - px, ez = a.Z + vz * t - pz, d = ex * ex + ez * ez;
+                        if (d < tBest) { tBest = d; tS = (k + t) / (TributaryPoints - 1.0); }
+                    }
+                    double tw = Math.Max(0, Math.Min(1, (Math.Sqrt(tBest) - (.8 + .6 * tS) * map.CellSize) / (4 * map.CellSize)));
+                    if (tw >= 1) continue;
+                    var f = tributaryFloors[r]; double at = tS * (TributaryPoints - 1); int q0 = Math.Min(TributaryPoints - 2, (int)at);
+                    double tFloor = f[q0] + (f[q0 + 1] - f[q0]) * (at - q0);
+                    double current = map.Height[i];
+                    if (current > tFloor) map.Height[i] = (float)Math.Min(current, tFloor + (current - tFloor) * tw * tw * (3 - 2 * tw));
+                }
             }
         });
+        if (_tributaries.Count > 0)
+        {
+            map.TributarySources.Clear();
+            foreach (var (course, _) in _tributaries)
+            {
+                int hx = Math.Max(1, Math.Min(n - 2, (int)Math.Round(course[1].X / map.CellSize))), hz = Math.Max(1, Math.Min(n - 2, (int)Math.Round(course[1].Z / map.CellSize)));
+                map.TributarySources.Add(map.Index(hx, hz));
+            }
+        }
         _riverBed = new bool[map.Height.Length];
         for (int i = 0; i < original.Length; i++) _riverBed[i] = map.Height[i] < original[i] - .5f;
     }

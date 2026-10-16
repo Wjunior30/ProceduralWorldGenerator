@@ -1,14 +1,15 @@
+using Zone = ProceduralWorld.Core.SiteZone;
+
 namespace ProceduralWorld.Core;
 
 // Island settlements: twenty flattened places of different size and role, chosen on suitable ground
 // (canyon mines, delta farms, river fishing, coastal ports, high outposts...) and joined by a road network.
 public sealed partial class TerrainGenerator
 {
-    private enum Zone { Any, Lowland, Canyon, Delta, Coast, River, High, Wild }
-
     // Placement order matters: big towns first so smaller places fill the gaps between them.
     // 20 cities (5 capitals in distinct regions + 15 towns) for the five military factions, then resource and danger sites.
-    private static readonly (SiteKind Kind, Zone Zone, int Radius, int Tier)[] SettlementPlan =
+    /// <summary>The default island: 5 capitals, 15 towns, port, farms, mines, fishing spots, nests and ruins.</summary>
+    public static IReadOnlyList<SitePlanEntry> DefaultIslandPlan { get; } = new (SiteKind Kind, Zone Zone, int Radius, int Tier)[]
     {
         (SiteKind.Town, Zone.Lowland, 11, 2), (SiteKind.Town, Zone.High, 11, 2), (SiteKind.Town, Zone.Coast, 11, 2), (SiteKind.Town, Zone.Canyon, 11, 2), (SiteKind.Town, Zone.Delta, 11, 2),
         (SiteKind.Village, Zone.Lowland, 8, 1), (SiteKind.Village, Zone.Lowland, 8, 1), (SiteKind.Village, Zone.Lowland, 8, 1), (SiteKind.Village, Zone.Lowland, 8, 1), (SiteKind.Village, Zone.Lowland, 8, 1),
@@ -16,7 +17,7 @@ public sealed partial class TerrainGenerator
         (SiteKind.Village, Zone.Any, 8, 1), (SiteKind.Village, Zone.High, 8, 1), (SiteKind.Port, Zone.Coast, 8, 1), (SiteKind.Farm, Zone.Delta, 8, 1), (SiteKind.Farm, Zone.Lowland, 8, 1),
         (SiteKind.Mine, Zone.Canyon, 5, 0), (SiteKind.Mine, Zone.High, 5, 0), (SiteKind.Mine, Zone.Any, 5, 0), (SiteKind.Fishing, Zone.River, 4, 0), (SiteKind.Fishing, Zone.Coast, 4, 0),
         (SiteKind.Nest, Zone.Delta, 5, 0), (SiteKind.Nest, Zone.Wild, 5, 0), (SiteKind.Ruins, Zone.High, 5, 0),
-    };
+    }.Select(p => new SitePlanEntry(p.Kind, p.Zone, p.Radius, p.Tier)).ToArray();
 
     /// <summary>Chooses and levels the settlement sites (runs after erosion, skipping the carved river bed).</summary>
     private void FlattenSites(SurfaceMap map)
@@ -46,8 +47,9 @@ public sealed partial class TerrainGenerator
             candidates.Add((x, z, zones.ToArray(), 1 - slope * 4));
         }
         map.Sites.Clear();
-        foreach (var (kind, zone, radius, tier) in SettlementPlan)
+        foreach (var entry in _settings.SettlementPlan ?? DefaultIslandPlan)
         {
+            var (kind, zone, radius, tier) = (entry.Kind, entry.Zone, entry.Radius, entry.Tier);
             // Radii are tuned in 20 m cells; convert to this map, never larger than a fraction of the spacing.
             int scaled = Math.Max(3, Math.Min(spacing / 3, (int)Math.Round(radius * 20.0 / map.CellSize)));
             (int X, int Z)? best = null; double bestScore = double.MinValue;

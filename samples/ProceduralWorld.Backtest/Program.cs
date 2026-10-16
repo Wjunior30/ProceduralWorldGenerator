@@ -7,14 +7,18 @@ using ProceduralWorld.Core;
 
 if (args.Length > 0 && args[0] == "render")
 {
-    // render <outputDir> [size] [seed]: one PNG per terrain style.
+    // render <outputDir> [size] [seed] [tributaries]: one PNG per terrain style.
     string renderDir = Path.GetFullPath(args.Length > 1 ? args[1] : Path.Combine("artifacts", "render"));
     int renderSize = args.Length > 2 ? int.Parse(args[2]) : 257;
     long renderSeed = args.Length > 3 ? long.Parse(args[3]) : 2026;
+    int renderTributaries = args.Length > 4 ? int.Parse(args[4]) : 0;
     Directory.CreateDirectory(renderDir);
     Parallel.ForEach(Enum.GetValues<TerrainStyle>(), style =>
-        WorldRender.Save(new WorldGenerator(renderSeed, TerrainPresetCatalog.Create(style, renderSize)).Generate().Surface,
-            Path.Combine(renderDir, $"{style.ToString().ToLowerInvariant()}.png")));
+    {
+        var settings = TerrainPresetCatalog.Create(style, renderSize); settings.Tributaries = renderTributaries;
+        WorldRender.Save(new WorldGenerator(renderSeed, settings).Generate().Surface,
+            Path.Combine(renderDir, $"{style.ToString().ToLowerInvariant()}.png"));
+    });
     Console.WriteLine($"Rendered to {renderDir}");
     return;
 }

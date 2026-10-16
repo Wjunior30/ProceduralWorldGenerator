@@ -5,9 +5,18 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <PackageId>Wjunior30.ProceduralWorld.Core</PackageId>
-    <Version>0.3.0</Version>
-    <Description>Deterministic, engine-neutral terrain, caves, rivers, labyrinths and voxel worlds.</Description>
+    <Version>0.4.0</Version>
+    <Description>Deterministic, engine-neutral terrain, islands with settlements and roads, rivers, vegetation cover, caves, labyrinths and voxel worlds.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Authors>Wjunior30</Authors>
+    <RepositoryUrl>https://github.com/Wjunior30/ProceduralWorldGenerator</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/Wjunior30/ProceduralWorldGenerator</PackageProjectUrl>
+    <PackageTags>procedural-generation;terrain;deterministic;game-development;island;rivers</PackageTags>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />

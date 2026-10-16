@@ -11,6 +11,10 @@ public static class WaterPhysics
     public const float CurrentSpeed = 3.20f, BuoyancyRatio = 1.38f, VerticalDrag = 3.2f;
     public const float DryResponse = 24f, WetResponse = 8f, SwimSpeedRatio = .42f;
 
+    /// <summary>How a body at a given height touches the water at a point (see WaterContact).</summary>
+    /// <param name="bodyY">Height of the body centre.</param>
+    /// <param name="surfaceY">Height of the water surface.</param>
+    /// <param name="depth">Water depth at the point.</param>
     /// <param name="current">Horizontal current normalized to CurrentSpeed (3.2 metres per second).</param>
     public static WaterContact Sample(float bodyY, float surfaceY, float depth, Vector2 current)
     {

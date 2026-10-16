@@ -173,6 +173,13 @@ internal static class Hydrology
         for (int i = 0; i < map.Flow.Length; i++)
             map.RiverChannel[i] = map.MainRiverChannel[i] || (!settings.SingleRiver && !map.LagoonBasin[i] && map.Flow[i] >= tributaryThreshold
                 && !(settings.SeaLevel > 0 && map.Height[i] < settings.SeaLevel));
+        // Planned side rivers run downhill from their heads until they join the main river or the sea.
+        foreach (int head in map.TributarySources)
+            for (int cell = head, steps = 0; cell >= 0 && !map.MainRiverChannel[cell] && steps < map.Size * 2; cell = map.DrainageReceiver[cell], steps++)
+            {
+                if (settings.SeaLevel > 0 && map.Height[cell] < settings.SeaLevel) break;
+                map.RiverChannel[cell] = true;
+            }
     }
 
     private static void MarkMainRiver(SurfaceMap map, DrainageSolution solution, WorldSettings settings)

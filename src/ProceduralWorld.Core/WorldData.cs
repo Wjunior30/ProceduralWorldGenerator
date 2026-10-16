@@ -36,6 +36,19 @@ public sealed class WorldSettings
     public float SeaLevel { get; set; }
     /// <summary>Keep only the principal river (no tributaries).</summary>
     public bool SingleRiver { get; set; }
+    /// <summary>Island style: places to found (null = the default 28-place plan, see TerrainGenerator.DefaultIslandPlan).</summary>
+    public SitePlanEntry[]? SettlementPlan { get; set; }
+    /// <summary>Island style: coast distance from the centre as a share of the map side (.44 leaves a sea margin).</summary>
+    public double CoastRadius { get; set; } = .44;
+    /// <summary>Island style: where the main river rises and how far it runs, as shares of the map side.</summary>
+    public double RiverStart { get; set; } = .04;
+    public double RiverLength { get; set; } = .48;
+    /// <summary>Island style: number of short side rivers joining the main one (0 = none).</summary>
+    public int Tributaries { get; set; }
+    /// <summary>Share of forest, jungle and taiga opened into meadows (0 = closed canopy).</summary>
+    public double ForestClearings { get; set; } = .3;
+    /// <summary>Multiplier on the vegetation cover (SurfaceMap.Vegetation).</summary>
+    public double VegetationDensity { get; set; } = 1;
     public void Validate()
     {
         if (GenerationVersion < 1 || Size < 17) throw new ArgumentOutOfRangeException(nameof(Size));
@@ -43,6 +56,7 @@ public sealed class WorldSettings
             throw new ArgumentOutOfRangeException("World dimensions and multipliers must be positive.");
         if (!float.IsFinite(WindX) || !float.IsFinite(WindZ) || Math.Abs(WindX) + Math.Abs(WindZ) < .001f)
             throw new ArgumentOutOfRangeException(nameof(WindX), "Wind must be a finite, non-zero 2D vector.");
+        if (CoastRadius <= .1 || CoastRadius > .5 || RiverStart < 0 || RiverLength <= 0 || Tributaries < 0 || Tributaries > 12) throw new ArgumentOutOfRangeException(nameof(CoastRadius), "Island shape out of range.");
         if (ErosionIterations < 0 || ErosionIterations > 200) throw new ArgumentOutOfRangeException(nameof(ErosionIterations));
         if (EnabledBiomes is null || EnabledBiomes.Length == 0 || !EnabledBiomes.Any(x => x is not Biome.River and not Biome.Lake))
             throw new ArgumentException("At least one terrestrial biome must be enabled.", nameof(EnabledBiomes));
@@ -55,7 +69,7 @@ public sealed class SurfaceMap
     public SurfaceMap(int size, float cellSize)
     {
         Size = size; CellSize = cellSize; int count = checked(size * size);
-        Height = new float[count]; Slope = new float[count]; Temperature = new float[count]; Moisture = new float[count];
+        Height = new float[count]; Vegetation = new float[count]; Slope = new float[count]; Temperature = new float[count]; Moisture = new float[count];
         Flow = new float[count]; WaterDepth = new float[count]; LagoonSurface = new float[count]; Sediment = new float[count]; Ridge = new float[count]; Continentalness = new float[count]; RockHardness = new float[count]; Strata = new float[count];
         Curvature = new float[count]; SlopeSaturation = new float[count]; BasinId = new int[count]; StreamOrder = new byte[count]; CaveOpening = new bool[count]; Landforms = new LandformKind[count];
         DrainageReceiver = Enumerable.Repeat(-1, count).ToArray(); RiverChannel = new bool[count]; MainRiverChannel = new bool[count]; LagoonBasin = new bool[count]; Ocean = new bool[count]; Road = new bool[count]; PavedRoad = new bool[count]; Biomes = new Biome[count]; Geology = new GeologicalIdentity[count];
@@ -66,6 +80,8 @@ public sealed class SurfaceMap
     public float[] Slope { get; }
     public float[] Temperature { get; }
     public float[] Moisture { get; }
+    /// <summary>Plant cover 0..1 (trees and bushes) for engines to scatter vegetation; 0 on water, roads and sites.</summary>
+    public float[] Vegetation { get; }
     public float[] Flow { get; }
     public float[] WaterDepth { get; }
     public float[] LagoonSurface { get; }
@@ -95,6 +111,8 @@ public sealed class SurfaceMap
     public List<RoadLink> RoadLinks { get; } = new();
     /// <summary>Preferred source cell of the principal river, or -1 to pick the longest drainage path.</summary>
     public int RiverSource { get; set; } = -1;
+    /// <summary>Heads of the short side rivers (island style); hydrology traces each down to the main river.</summary>
+    public List<int> TributarySources { get; } = new();
     public Biome[] Biomes { get; }
     public GeologicalIdentity[] Geology { get; }
     public int Index(int x, int z) => checked(z * Size + x);
@@ -186,3 +204,17 @@ public enum SiteKind { Village, Mine, Fishing, Farm, HuntersCamp, Outpost, Ruins
 public sealed record Site(SiteKind Kind, int X, int Z, int Radius, int Tier = 1);
 /// <summary>Road between two sites (indexes into SurfaceMap.Sites); Length in metres; Paved for the asphalt highways; Cells is the route.</summary>
 public sealed record RoadLink(int From, int To, float Length, bool Paved = false, IReadOnlyList<int>? Cells = null);
+
+/// <summary>Kind of ground a planned site prefers (Any = wherever it is flat).</summary>
+public enum SiteZone { Any, Lowland, Canyon, Delta, Coast, River, High, Wild }
+
+/// <summary>One place the island style must found, in placement order (bigger places first). Radius in 20 m cells.</summary>
+public sealed class SitePlanEntry
+{
+    public SitePlanEntry() { }
+    public SitePlanEntry(SiteKind kind, SiteZone zone, int radius, int tier) { Kind = kind; Zone = zone; Radius = radius; Tier = tier; }
+    public SiteKind Kind { get; set; }
+    public SiteZone Zone { get; set; }
+    public int Radius { get; set; } = 8;
+    public int Tier { get; set; } = 1;
+}

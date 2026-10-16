@@ -296,9 +296,10 @@ public sealed partial class TerrainGenerator
             else map.Biomes[i] = Biome.Grassland;
         }
         MarkBeaches(map);
-        if (IsIsland) { ApplyIslandBiomes(map); BuildRoads(map); return; }
+        if (IsIsland) { ApplyIslandBiomes(map); BuildRoads(map); ComputeVegetation(map); return; }
         ApplyBiomeQuotas(map);
         ApplyBiomeSelection(map);
+        ComputeVegetation(map);
     }
 
     private void ApplyBiomeSelection(SurfaceMap map)
