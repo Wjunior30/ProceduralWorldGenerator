@@ -40,6 +40,26 @@ Check(a.Surface.Biomes.Distinct().Count() >= 5, "World must contain multiple bio
 Biome[] terrestrialBiomes = ((Biome[])Enum.GetValues(typeof(Biome))).Where(x => x is not Biome.River and not Biome.Lake).ToArray();
 Check(terrestrialBiomes.All(a.Surface.Biomes.Contains), "Default generation must represent every terrestrial biome.");
 Check(a.Surface.Geology.Distinct().Count() >= 2, "Natural worlds must contain multiple geological provinces.");
+{
+    // Island climate: a cold north and a hot south give many biomes, none dominant; the relief is broad hills, not bumps.
+    var islandSettings = TerrainPresetCatalog.Create(TerrainStyle.Island, 257); islandSettings.CellSize = 20; islandSettings.MountainHeight = 1100; // the game profile grid
+    var island = new WorldGenerator(2026, islandSettings).Generate().Surface;
+    var landBiomes = Enumerable.Range(0, island.Biomes.Length).Where(i => !island.Ocean[i] && island.WaterDepth[i] <= 0).Select(i => island.Biomes[i]).ToList();
+    int kinds = landBiomes.GroupBy(b => b).Count(g => g.Count() > landBiomes.Count * .01);
+    double top = landBiomes.GroupBy(b => b).Max(g => g.Count()) / (double)landBiomes.Count;
+    Check(kinds >= 8, $"Island must hold at least 8 land biomes over 1% each (has {kinds}).");
+    Check(top <= .45, $"Island must not be dominated by one biome ({top:P0}).");
+    Check(landBiomes.Contains(Biome.Snow) && landBiomes.Contains(Biome.Jungle) && landBiomes.Contains(Biome.Taiga), "Island must have polar/alpine snow, tropical jungle and cold taiga.");
+    int n = island.Size, peaks = 0, cells = 0;
+    for (int z = 1; z < n - 1; z++) for (int x = 1; x < n - 1; x++)
+    {
+        int i = z * n + x; if (island.Ocean[i]) continue; cells++; bool peak = true;
+        for (int dz = -1; dz <= 1 && peak; dz++) for (int dx = -1; dx <= 1; dx++) if ((dx != 0 || dz != 0) && island.Height[i + dz * n + dx] >= island.Height[i]) { peak = false; break; }
+        if (peak) peaks++;
+    }
+    double km2 = cells * island.CellSize * island.CellSize / 1e6;
+    Check(peaks / km2 < 15, $"Island relief must be broad hills (local peaks {peaks / km2:0.0}/km2).");
+}
 Check(a.Surface.RockHardness.All(x => x is >= .1f and <= 1f), "Rock hardness must be finite and normalized.");
 Check(a.Caves.AirCellCount > 0 && a.Caves.Entrances.Count == 4, "Caves must be volumetric and expose guaranteed entrances.");
 Check(a.Caves.Entrances.All(e => !a.Caves.IsSolid(e.X, a.Caves.Height - 2, e.Z) && !a.Caves.IsSolid(e.X, e.CaveY, e.Z)), "Every cave entrance must connect surface and carved space.");

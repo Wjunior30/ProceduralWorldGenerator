@@ -1,8 +1,9 @@
 namespace ProceduralWorld.Core;
 
 // Island style: a sea-bound island with a snowy central peak and one principal river that runs from the peak,
-// through forest, cuts a terraced canyon, spreads into a swamp delta and reaches the sea across the beach.
-// Regions are laid out along the river bearing so the river always crosses every biome.
+// cuts a terraced canyon, spreads into a swamp delta and reaches the sea across the beach. Elsewhere the climate
+// decides: a cold north (tundra, taiga, polar snow), a hot south (jungle, savanna), wet windward and dry leeward
+// coasts (forest or grassland), altitude bands up the mountain (forest, taiga, bare rock, snow).
 public sealed partial class TerrainGenerator
 {
     private const int RiverPoints = 96;
@@ -284,6 +285,36 @@ public sealed partial class TerrainGenerator
     }
 
     /// <summary>Five land biomes placed by region: Snow (peak), Beach (coast), Desert (canyon), Swamp (delta), Forest (the rest).</summary>
+    private const double IslandDetail = .2; // share of the small-scale relief noise kept on the island
+
+    // Broad island hills instead of dense bumps: a few weighted 3x3 passes over land above the shore.
+    private void SmoothIslandRelief(SurfaceMap map)
+    {
+        int n = map.Size; float sea = _settings.SeaLevel; var copy = new float[map.Height.Length];
+        for (int pass = 0; pass < 5; pass++)
+        {
+            Array.Copy(map.Height, copy, copy.Length);
+            for (int z = 1; z < n - 1; z++) for (int x = 1; x < n - 1; x++)
+            {
+                int i = map.Index(x, z); if (copy[i] < sea + 3) continue;
+                float sum = copy[i] * 4, w = 4;
+                for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dz == 0) continue; float k = dx != 0 && dz != 0 ? 1 : 2;
+                    sum += copy[map.Index(x + dx, z + dz)] * k; w += k;
+                }
+                map.Height[i] = sum / w;
+            }
+        }
+    }
+
+    /// <summary>Island climate, 0 (polar) to 1 (tropical): north is cold, south hot, and height cools.</summary>
+    private float IslandWarmth(double nx, double nz, float relativeHeight, double px, double pz)
+    {
+        double north = Math.Max(-1, Math.Min(1, nz / CoastRadius));
+        return (float)(.6 - north * .5 - relativeHeight * .6 + _temperature.Sample(px, pz) * .12);
+    }
+
     private void ApplyIslandBiomes(SurfaceMap map)
     {
         int n = map.Size; double extent = (n - 1) * map.CellSize; float sea = _settings.SeaLevel;
@@ -291,7 +322,7 @@ public sealed partial class TerrainGenerator
         var lowerRiver = Distance(map, i => map.MainRiverChannel[i] && map.Height[i] < sea + 14);
         float maximum = sea;
         for (int i = 0; i < map.Height.Length; i++) if (!map.Ocean[i]) maximum = Math.Max(maximum, map.Height[i]);
-        float snowLine = sea + .80f * (maximum - sea);
+        float snowLine = sea + .66f * (maximum - sea);
         for (int z = 0; z < n; z++) for (int x = 0; x < n; x++)
         {
             int i = map.Index(x, z);
@@ -304,8 +335,22 @@ public sealed partial class TerrainGenerator
                 : oceanDistance[i] <= 2.5f && h < sea + 6 ? Biome.Beach
                 : CanyonMask(nx, nz, distance) > .35 ? Biome.Desert
                 : (DeltaMask(nx, nz, distance) > .3 || lowerRiver[i] <= 7) && h < sea + 16 ? Biome.Swamp
-                : Biome.Forest;
+                : ClimateBiome(map, i, IslandWarmth(nx, nz, (h - sea) / Math.Max(1, maximum - sea), px, pz));
         }
+    }
+
+    // Climate biome for the rest of the island: warmth (north/south and height) against moisture (rain shadow, rivers).
+    private static Biome ClimateBiome(SurfaceMap map, int i, float warmth)
+    {
+        float wet = map.Moisture[i], slope = map.Slope[i];
+        map.Temperature[i] = warmth * 40 - 10;
+        if (warmth < .04f) return Biome.Snow;                                  // polar north
+        if (slope > .7f && warmth < .45f) return Biome.Rock;                    // bare cliffs up the mountain
+        if (warmth < .2f) return wet > .5f ? Biome.Taiga : Biome.Tundra;
+        if (warmth < .34f) return wet > .42f ? Biome.Taiga : Biome.Tundra;
+        if (warmth > .7f) return wet > .62f ? Biome.Jungle : wet < .5f ? Biome.Savanna : Biome.Grassland;
+        if (warmth > .58f) return wet > .66f ? Biome.Jungle : wet < .48f ? Biome.Savanna : Biome.Grassland;
+        return wet > .5f ? Biome.Forest : Biome.Grassland;
     }
 
     private static float[] Distance(SurfaceMap map, Func<int, bool> source)

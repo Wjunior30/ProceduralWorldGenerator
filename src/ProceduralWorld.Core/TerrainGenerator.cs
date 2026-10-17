@@ -40,7 +40,7 @@ public sealed partial class TerrainGenerator
                 double fault = _faults.Sample(wx, wz);
                 double plateauNoise = _plateaus.Sample(wx, wz);
                 double basinNoise = _basins.Sample(wx, wz);
-                double detail = _detail.Sample(wx, wz);
+                double detail = _detail.Sample(wx, wz) * (IsIsland ? IslandDetail : 1); // the island keeps broad hills, not a field of bumps
                 double featureA = _featureA.Sample(wx, wz);
                 double featureB = _featureB.Sample(wx, wz);
                 double ridge = Smooth(.16, .83, ridgeNoise) * (.68 + .32 * Smooth(-.5, .45, region + continent * .25));
@@ -61,7 +61,7 @@ public sealed partial class TerrainGenerator
                 map.Strata[i] = (float)strata;
             }
         });
-        if (IsIsland) CarveIslandRiver(map);
+        if (IsIsland) { SmoothIslandRelief(map); CarveIslandRiver(map); }
 
         double massBeforeErosion = map.Height.Sum(x => (double)x);
         Erosion.ApplyThermal(map, _settings.ErosionIterations, _settings.ErosionStrength, _settings.TerrainStyle);
