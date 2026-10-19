@@ -21,8 +21,13 @@ public sealed partial class TerrainGenerator
     }
     private ulong Sub(ulong salt) => PositionalHash.Mix(_seed ^ PositionalHash.Mix(salt));
 
-    public SurfaceMap Generate()
+    public SurfaceMap Generate() => Generate(null);
+
+    // Optional diagnostics; the ordinary API incurs no stopwatch or logging work.
+    public SurfaceMap Generate(Action<string, double>? stageCompleted)
     {
+        var watch = stageCompleted == null ? null : System.Diagnostics.Stopwatch.StartNew();
+        void Stage(string name) { if (watch == null) return; stageCompleted!(name, watch.Elapsed.TotalMilliseconds); watch.Restart(); }
         var map = new SurfaceMap(_settings.Size, _settings.CellSize);
         int n = map.Size;
         if (IsIsland) PrepareIsland(map);
@@ -61,10 +66,13 @@ public sealed partial class TerrainGenerator
                 map.Strata[i] = (float)strata;
             }
         });
+        Stage("noise");
         if (IsIsland) { SmoothIslandRelief(map); CarveIslandRiver(map); }
+        Stage("island");
 
         double massBeforeErosion = map.Height.Sum(x => (double)x);
         Erosion.ApplyThermal(map, _settings.ErosionIterations, _settings.ErosionStrength, _settings.TerrainStyle);
+        Stage("thermal");
         Erosion.ApplyStreamPower(map, 6, _settings.TerrainStyle switch
         {
             TerrainStyle.Canyonlands => .030f,
@@ -72,6 +80,7 @@ public sealed partial class TerrainGenerator
             TerrainStyle.Glacial => .016f,
             _ => .022f
         });
+        Stage("stream_power");
         float maximumGradient = _settings.TerrainStyle switch
         {
             TerrainStyle.Alpine => .96f,
@@ -82,15 +91,19 @@ public sealed partial class TerrainGenerator
         };
         float maximumApex = _settings.TerrainStyle is TerrainStyle.Alpine or TerrainStyle.Volcanic ? .72f : .54f;
         Erosion.RelaxSlopes(map, maximumGradient, 140);
+        Stage("slopes");
         Erosion.SuppressIsolatedApexes(map, maximumApex, 12);
         if (IsIsland) { ReopenIslandValleys(map); FlattenSites(map); } // after erosion so the valleys keep falling and the sites stay level
+        Stage("sites");
         Hydrology.Apply(map, _settings, IsIsland ? ReopenIslandValleys : null);
+        Stage("hydrology");
         if (IsIsland) SettleSites(map); // towns and posts end level, whatever the rivers carved after the first levelling
         map.ErosionMassDelta = map.Height.Sum(x => (double)x) - massBeforeErosion;
         CalculateSlopes(map);
         CalculateCurvature(map, maximumGradient);
         ClassifyLandforms(map);
         ClassifyClimate(map);
+        Stage("classification");
         return map;
     }
 
@@ -270,7 +283,7 @@ public sealed partial class TerrainGenerator
         }
         float[] waterDistance = WaterDistance(map);
 
-        for (int z = 0; z < n; z++) for (int x = 0; x < n; x++)
+        Parallel.For(0, n, z => { for (int x = 0; x < n; x++)
         {
             int i = map.Index(x, z);
             double px = x * map.CellSize, pz = z * map.CellSize;
@@ -295,7 +308,7 @@ public sealed partial class TerrainGenerator
             else if (moisture > .53f + ecology * .16f) map.Biomes[i] = Biome.Forest;
             else if (moisture < .43f + ecology * .12f && slope < .34f) map.Biomes[i] = Biome.Savanna;
             else map.Biomes[i] = Biome.Grassland;
-        }
+        } });
         MarkBeaches(map);
         if (IsIsland) { ApplyIslandBiomes(map); BuildRoads(map); ComputeVegetation(map); return; }
         ApplyBiomeQuotas(map);

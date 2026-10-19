@@ -141,3 +141,22 @@ Na Unity, a física continua amostrando o campo refinado, enquanto a malha visua
 O jogo aprovado está em `../SimulationLife`, agora um projeto Unity. A antiga pasta de prévia permanece apenas como cópia de trabalho; o repositório do jogo é a referência principal.
 
 Validação do pacote: `dotnet run --project tests/ProceduralWorld.RiverTests`. A suíte verifica física, exportação e inclusão completa do adaptador. A Unity também possui verificações de execução em `ThirdPersonValidation`.
+
+## ESSAS SÃO MINHAS MUDANÇAS
+
+### 18/10/2026 — Otimização usada pelo SimulationLife
+
+- `Erosion.RelaxSlopes` calcula a variação espacial uma vez por célula e a reutiliza nas arestas/iterações. A ordem das transferências, as alturas e os sedimentos foram preservados.
+- `SimulationLife/tools/GeneratorParity` aprovou 36 comparações bit a bit contra o algoritmo anterior (três grades, três seeds, dois espaçamentos e dois limites de encosta). O trecho foi aproximadamente 3,9 vezes mais rápido no teste .NET; o jogo inteiro tem outros custos.
+- A suíte `ProceduralWorld.Tests` passou. A DLL Release foi sincronizada em `SimulationLife/Assets/Plugins`. Não houve mudança de API pública nem de resultado matemático; nenhuma versão da geração precisou ser alterada por essa otimização.
+- O registro completo, as medições na Unity e as pendências deste ciclo estão ao final de `../SimulationLife/README.md`. Sem commit nem push.
+
+### 19/10/2026 — Continuação da otimização do SimulationLife
+
+- `TerrainGenerator.Generate` ganhou uma sobrecarga opcional de diagnóstico por etapa; a chamada sem argumentos foi preservada.
+- A classificação climática independente por linha foi paralelizada. A mediana de oito vizinhos usa ordenação direta por inserção, evitando chamadas genéricas repetidas na Unity.
+- `RelaxSlopes` pré-calcula também os limites/mobilidade de cada aresta, mantendo a ordem original das transferências. O backtest externo aprovou novamente 36 comparações bit a bit de alturas e sedimentos.
+- O roteador das ligações entre assentamentos reaproveita custos quando as estradas não mudam; recalcula quando necessário. As cinco seeds 42, 1, 2026, -9876 e 1337 mantiveram as assinaturas de altura. A validação completa das superfícies e a suíte deste repositório serão repetidas antes da entrega.
+- Sem commit nem push; resultados e limites das medições Unity ficam no README do SimulationLife.
+- A continuação também removeu rotas de postos descartadas com `Roads=false`, paralelizou as rotas invisíveis independentes e substituiu verificações repetidas de espaçamento por máscaras. Erosão e supressão de picos reavaliam apenas vizinhanças/arestas afetadas, mantendo a ordem original das transferências. As 36 propriedades completas das cinco superfícies passaram contra a DLL original, e a suíte `ProceduralWorld.Tests` passou novamente. Evidência em `SimulationLife/artifacts/full-surface-parity.txt` e `pwg-tests.txt`.
+- O roteador rejeita destinos intransponíveis e componentes desconectados antes da busca A*, preservando os resultados. A seed 2026 no projeto completo da Unity caiu de 6.430 para 4.539 ms até o mundo pronto. A comparação completa das cinco superfícies passou novamente após essa alteração.

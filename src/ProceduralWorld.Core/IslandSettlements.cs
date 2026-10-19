@@ -61,6 +61,7 @@ public sealed partial class TerrainGenerator
             candidates.Add((x, z, zones.ToArray(), 1 - slope * 4));
         }
         map.Sites.Clear();
+        var siteSpacing = new bool[n * n];
         foreach (var entry in _settings.SettlementPlan ?? DefaultIslandPlan)
         {
             var (kind, zone, radius, tier) = (entry.Kind, entry.Zone, entry.Radius, entry.Tier);
@@ -69,18 +70,20 @@ public sealed partial class TerrainGenerator
             (int X, int Z)? best = null; double bestScore = double.MinValue;
             foreach (var c in candidates)
             {
-                bool clear = map.Sites.All(s => (s.X - c.X) * (s.X - c.X) + (s.Z - c.Z) * (s.Z - c.Z) >= spacing * spacing);
-                if (!clear) continue;
+                if (siteSpacing[map.Index(c.X, c.Z)]) continue;
                 double score = c.Flat + (c.Zones.Contains(zone) ? 3 : 0) + random.NextDouble() * .8;
                 if (score > bestScore) { bestScore = score; best = (c.X, c.Z); }
             }
             if (best is null) continue;
             map.Sites.Add(new Site(kind, best.Value.X, best.Value.Z, scaled, tier));
+            MarkCircle(siteSpacing, n, best.Value.X, best.Value.Z, spacing);
         }
 
         // Military posts: for each settled place, random flat candidates 350-800 m away, spread around it, clear of other places.
         map.Outposts.Clear();
         int postRadius = Math.Max(2, (int)Math.Round(60 / map.CellSize)), near = (int)(350 / map.CellSize), far = (int)(800 / map.CellSize);
+        var postSiteBlocked = new bool[n * n]; var postBlocked = new bool[n * n];
+        foreach (var site in map.Sites) MarkCircle(postSiteBlocked, n, site.X, site.Z, site.Radius + postRadius + 6);
         for (int s = 0; s < map.Sites.Count; s++)
         {
             var home = map.Sites[s]; if (home.Tier < 1) continue;
@@ -90,16 +93,16 @@ public sealed partial class TerrainGenerator
                 (int X, int Z)? best = null; double bestScore = double.MinValue;
                 foreach (var c in candidates)
                 {
-                    double d = Math.Sqrt((c.X - home.X) * (c.X - home.X) + (c.Z - home.Z) * (c.Z - home.Z));
-                    if (d < near || d > far) continue;
-                    if (map.Sites.Any(o => (o.X - c.X) * (o.X - c.X) + (o.Z - c.Z) * (o.Z - c.Z) < (o.Radius + postRadius + 6) * (o.Radius + postRadius + 6))) continue;
-                    if (map.Outposts.Concat(chosen.Select(p => new OutpostSite(s, p.X, p.Z, postRadius))).Any(o => (o.X - c.X) * (o.X - c.X) + (o.Z - c.Z) * (o.Z - c.Z) < 15 * 15)) continue;
+                    int d2 = (c.X - home.X) * (c.X - home.X) + (c.Z - home.Z) * (c.Z - home.Z);
+                    if (d2 < near * near || d2 > far * far) continue;
+                    int cell = map.Index(c.X, c.Z); if (postSiteBlocked[cell] || postBlocked[cell]) continue;
                     double angle = Math.Atan2(c.Z - home.Z, c.X - home.X), spread = chosen.Count == 0 ? Math.PI : chosen.Min(p => Math.Abs(Math.IEEERemainder(angle - Math.Atan2(p.Z - home.Z, p.X - home.X), 2 * Math.PI)));
                     double score = c.Flat * 2 + spread + random.NextDouble() * 1.5; // flat, spread around the town, and different every world
                     if (score > bestScore) { bestScore = score; best = (c.X, c.Z); }
                 }
                 if (best is null) break;
                 chosen.Add(best.Value);
+                MarkCircle(postBlocked, n, best.Value.X, best.Value.Z, 15);
             }
             foreach (var p in chosen) map.Outposts.Add(new OutpostSite(s, p.X, p.Z, postRadius));
         }
@@ -130,6 +133,13 @@ public sealed partial class TerrainGenerator
         int free = levelled.Count(x => !x);
         float correction = (float)((massBefore - map.Height.Sum(h => (double)h)) / Math.Max(1, free));
         for (int i = 0; i < map.Height.Length; i++) if (!levelled[i]) map.Height[i] += correction;
+    }
+
+    private static void MarkCircle(bool[] mask, int size, int cx, int cz, int radius)
+    {
+        for (int z = Math.Max(0, cz - radius); z <= Math.Min(size - 1, cz + radius); z++)
+        for (int x = Math.Max(0, cx - radius); x <= Math.Min(size - 1, cx + radius); x++)
+            if ((x - cx) * (x - cx) + (z - cz) * (z - cz) < radius * radius) mask[z * size + x] = true;
     }
 
     /// <summary>Final levelling after hydrology (and the valley re-carving it triggers): every site and military post
@@ -188,12 +198,26 @@ public sealed partial class TerrainGenerator
             int b = Enumerable.Range(0, count).Where(x => x != a && !links.Contains((Math.Min(a, x), Math.Max(a, x)))).OrderBy(x => Dist(a, x)).FirstOrDefault();
             if (b != a && Dist(a, b) < map.Size * .28) links.Add((Math.Min(a, b), Math.Max(a, b)));
         }
-        var router = new RoadRouter(map) { Bank = _valleyAt.Length > 0 ? RiverBanks(map) : null };
+        var router = new RoadRouter(map, _settings.Roads) { Bank = _valleyAt.Length > 0 ? RiverBanks(map) : null };
         var reached = new HashSet<int>(); var ordered = links.OrderBy(l => l.Item1).ThenBy(l => l.Item2).ToList();
+        List<int>?[]? independent = null;
+        if (!_settings.Roads)
+        {
+            // Invisible routes do not paint shared roads, so these searches are independent.
+            // Commit their results below in the original order, including the original fallback rules.
+            independent = new List<int>?[ordered.Count];
+            Parallel.For(0, ordered.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Math.Min(4, Environment.ProcessorCount - 2)) },
+                () => new RoadRouter(map, false) { Bank = router.Bank },
+                (i, _, local) =>
+                {
+                    var (a, b) = ordered[i]; independent[i] = local.Find(map.Index(map.Sites[a].X, map.Sites[a].Z), map.Index(map.Sites[b].X, map.Sites[b].Z));
+                    return local;
+                }, _ => { });
+        }
         for (int li = 0; li < ordered.Count; li++)
         {
             var (a, b) = ordered[li];
-            var path = router.Find(map.Index(map.Sites[a].X, map.Sites[a].Z), map.Index(map.Sites[b].X, map.Sites[b].Z));
+            var path = independent != null && li < independent.Length ? independent[li] : router.Find(map.Index(map.Sites[a].X, map.Sites[a].Z), map.Index(map.Sites[b].X, map.Sites[b].Z));
             if (path is null)
             {
                 // Blocked: try the next nearest place for whichever end still has no road (each place keeps at least one link).
@@ -217,7 +241,9 @@ public sealed partial class TerrainGenerator
             map.RoadLinks.Add(new RoadLink(a, b, length, paved, path));
         }
         // Each military post gets a dirt track to its town.
-        foreach (var post in map.Outposts)
+        // With roads disabled these tracks have no consumer and do not change any map field.
+        // Do not spend A* searches on paths that would be immediately discarded.
+        if (_settings.Roads) foreach (var post in map.Outposts)
         {
             var home = map.Sites[post.Site];
             var track = router.Find(map.Index(post.X, post.Z), map.Index(home.X, home.Z));
@@ -256,7 +282,8 @@ public sealed partial class TerrainGenerator
     private sealed class RoadRouter
     {
         private readonly SurfaceMap _map; private readonly float[] _g; private readonly int[] _parent, _stamp, _closed; private int _search;
-        public RoadRouter(SurfaceMap map) { _map = map; int c = map.Height.Length; _g = new float[c]; _parent = new int[c]; _stamp = new int[c]; _closed = new int[c]; }
+        private readonly bool _mutableRoads; private float[]? _cost; private bool _costBridge; private int[]? _components;
+        public RoadRouter(SurfaceMap map, bool mutableRoads = true) { _map = map; _mutableRoads = mutableRoads; int c = map.Height.Length; _g = new float[c]; _parent = new int[c]; _stamp = new int[c]; _closed = new int[c]; }
 
         /// <summary>Last resort for a place cut off by deep water: allow a long, very expensive bridge.</summary>
         public bool BridgeDeepWater;
@@ -272,6 +299,38 @@ public sealed partial class TerrainGenerator
 
         public List<int>? Find(int start, int goal)
         {
+            if (_cost == null || _mutableRoads || _costBridge != BridgeDeepWater)
+            {
+                _cost ??= new float[_map.Height.Length]; _costBridge = BridgeDeepWater;
+                for (int i = 0; i < _cost.Length; i++) _cost[i] = Cost(i);
+                _components = null;
+            }
+            if (start != goal && float.IsInfinity(_cost[goal])) return null;
+            if (!_mutableRoads)
+            {
+                if (_components == null)
+                {
+                    _components = new int[_cost.Length]; var pending = new int[_cost.Length]; int label = 0, size = _map.Size;
+                    for (int first = 0; first < _cost.Length; first++)
+                    {
+                        if (_components[first] != 0 || float.IsInfinity(_cost[first])) continue;
+                        int head = 0, tail = 1; pending[0] = first; _components[first] = ++label;
+                        while (head < tail)
+                        {
+                            int cell = pending[head++], x = cell % size, z = cell / size;
+                            for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++)
+                            {
+                                int nx = x + dx, nz = z + dz; if (nx < 0 || nz < 0 || nx >= size || nz >= size) continue;
+                                int next = nz * size + nx;
+                                if (_components[next] != 0 || float.IsInfinity(_cost[next])) continue;
+                                _components[next] = label; pending[tail++] = next;
+                            }
+                        }
+                    }
+                }
+                // A* cannot connect separate finite-cost components. Avoid exploring the whole island to prove it.
+                if (_components[start] > 0 && _components[goal] > 0 && _components[start] != _components[goal]) return null;
+            }
             int n = _map.Size, stamp = ++_search;
             // Binary heap on parallel arrays: no boxing comparers or tree nodes (slow under Unity's Mono runtime).
             var heap = new List<(float F, int Cell)>();
@@ -289,7 +348,7 @@ public sealed partial class TerrainGenerator
                 {
                     int nx = x + dx, nz = z + dz; if ((dx == 0 && dz == 0) || nx < 0 || nz < 0 || nx >= n || nz >= n) continue;
                     int next = nz * n + nx; if (_closed[next] == stamp) continue;
-                    float c = Cost(next); if (float.IsInfinity(c)) continue;
+                    float c = _cost[next]; if (float.IsInfinity(c)) continue;
                     float candidate = _g[cell] + c * (dx != 0 && dz != 0 ? 1.4142f : 1);
                     if (_stamp[next] == stamp && _g[next] <= candidate) continue;
                     _stamp[next] = stamp; _g[next] = candidate; _parent[next] = cell; Push(candidate + H(next), next);
